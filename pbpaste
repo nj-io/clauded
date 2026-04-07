@@ -1,0 +1,13 @@
+#!/bin/bash
+# pbpaste: Clipboard shim for Docker containers.
+# Reads clipboard content from the host Mac via the clipboard server.
+#
+# Usage: pbpaste
+
+PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
+
+if [ -f "/.dockerenv" ] || [ "${CLAUDE_DOCKER:-}" = "1" ]; then
+    curl -sf "http://host.docker.internal:${PORT}/paste" 2>/dev/null
+elif command -v /usr/bin/pbpaste &>/dev/null; then
+    /usr/bin/pbpaste
+fi

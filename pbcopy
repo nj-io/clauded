@@ -1,0 +1,14 @@
+#!/bin/bash
+# pbcopy: Clipboard shim for Docker containers.
+# Forwards clipboard content to the host Mac via the clipboard server.
+#
+# Usage: echo "text" | pbcopy
+#        pbcopy < file.txt
+
+PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
+
+if [ -f "/.dockerenv" ] || [ "${CLAUDE_DOCKER:-}" = "1" ]; then
+    curl -sf -X POST --data-binary @- "http://host.docker.internal:${PORT}/copy" >/dev/null 2>&1
+elif command -v /usr/bin/pbcopy &>/dev/null; then
+    /usr/bin/pbcopy
+fi

@@ -1,0 +1,11 @@
+# SSH config for Docker containers.
+# Copy to ssh-config-docker and edit with your key name.
+# Only needed if your default ~/.ssh/config has Mac-specific entries
+# that don't work in Linux containers.
+
+Host github.com
+  HostName github.com
+  AddKeysToAgent yes
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  StrictHostKeyChecking accept-new

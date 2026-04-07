@@ -1,0 +1,21 @@
+#!/bin/bash
+# xclip shim: Forwards clipboard operations to the host Mac via clipboard server.
+# Handles the flags that Node.js clipboard libraries use:
+#   xclip -selection clipboard        (copy, reads stdin)
+#   xclip -selection clipboard -o     (paste, writes to stdout)
+
+PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
+HOST="host.docker.internal"
+
+paste=false
+for arg in "$@"; do
+    if [ "$arg" = "-o" ]; then
+        paste=true
+    fi
+done
+
+if $paste; then
+    curl -sf "http://${HOST}:${PORT}/paste" 2>/dev/null
+else
+    curl -sf -X POST --data-binary @- "http://${HOST}:${PORT}/copy" >/dev/null 2>&1
+fi

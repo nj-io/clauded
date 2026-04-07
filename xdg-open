@@ -1,0 +1,19 @@
+#!/bin/bash
+# xdg-open shim: Opens URLs on the host Mac via the clipboard/host-services server.
+#
+# Usage: xdg-open https://example.com
+
+URL="$1"
+PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
+
+if [ -z "$URL" ]; then
+    exit 1
+fi
+
+if [ -f "/.dockerenv" ] || [ "${CLAUDE_DOCKER:-}" = "1" ]; then
+    curl -sf -X POST --data-binary "$URL" "http://host.docker.internal:${PORT}/open" >/dev/null 2>&1
+elif command -v /usr/bin/xdg-open &>/dev/null; then
+    /usr/bin/xdg-open "$URL"
+elif command -v open &>/dev/null; then
+    open "$URL"
+fi

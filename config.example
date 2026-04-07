@@ -1,0 +1,22 @@
+# clauded configuration
+# Copy to ~/.claude-docker/config and edit.
+# Created automatically on first run if it doesn't exist.
+
+# Project directory — mounted read-write into containers
+DEV_DIR="$HOME/dev"
+
+# Extra directories to mount read-write (space-separated, absolute paths)
+# Example: EXTRA_MOUNTS="$HOME/.my-tool $HOME/.local/share/my-mcp"
+EXTRA_MOUNTS=""
+
+# Custom SSH config for Docker (leave empty to use ~/.ssh/config as-is)
+# Useful if your Mac SSH config has Keychain or Mac-specific entries.
+# Copy ssh-config-docker.example to ssh-config-docker and edit.
+# SSH_CONFIG="$SCRIPT_DIR/ssh-config-docker"
+SSH_CONFIG=""
+
+# Custom gitconfig for Docker (leave empty to use ~/.gitconfig as-is)
+# Useful if your Mac gitconfig uses osxkeychain credential helpers.
+# Copy gitconfig-docker.example to gitconfig-docker and edit.
+# GITCONFIG="$SCRIPT_DIR/gitconfig-docker"
+GITCONFIG=""

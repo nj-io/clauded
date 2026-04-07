@@ -1,0 +1,23 @@
+#!/bin/bash
+# play-sound: Cross-platform sound player for Claude Code hooks.
+# Works natively on macOS AND inside Docker containers.
+#
+# Usage: play-sound [SoundName]
+#   play-sound Submarine    (default)
+#   play-sound Ping
+#   play-sound Glass
+#   play-sound Hero
+
+SOUND="${1:-Submarine}"
+PORT="${CLAUDE_SOUND_PORT:-21563}"
+
+if [ -f "/.dockerenv" ] || [ "${CLAUDE_DOCKER:-}" = "1" ]; then
+    # Inside Docker: notify the host sound server via HTTP
+    curl -sf "http://host.docker.internal:${PORT}/?sound=${SOUND}" >/dev/null 2>&1 || true
+elif [ "$(uname)" = "Darwin" ]; then
+    # Native macOS: play directly
+    SOUND_FILE="/System/Library/Sounds/${SOUND}.aiff"
+    if [ -f "$SOUND_FILE" ]; then
+        afplay "$SOUND_FILE" &
+    fi
+fi

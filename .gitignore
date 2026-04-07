@@ -1,0 +1,16 @@
+.env
+.DS_Store
+*.log
+session-names.json
+resume.log
+
+# User-specific configs (created from .example files)
+gitconfig-docker
+ssh-config-docker
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# Docker
+docker-compose.override.yml

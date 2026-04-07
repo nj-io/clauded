@@ -1,0 +1,12 @@
+[user]
+	email = your-email@example.com
+
+[core]
+	autocrlf = input
+
+[init]
+	defaultBranch = main
+
+# Use SSH for GitHub inside Docker (no gh credential helper available)
+[url "git@github.com:"]
+	insteadOf = https://github.com/

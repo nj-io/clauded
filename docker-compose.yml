@@ -1,0 +1,26 @@
+services:
+  claude:
+    build:
+      context: .
+      args:
+        USER_ID: ${USER_ID:-501}
+        GROUP_ID: ${GROUP_ID:-20}
+        HOME_DIR: ${HOME_DIR:-/home/claude}
+    image: claude-code:latest
+    volumes:
+      # Project files (read-write)
+      - ~/dev:/home/claude/dev
+
+      # Claude Code config, memory, sessions (read-write)
+      - ~/.claude:/home/claude/.claude
+
+      # SSH keys (read-only)
+      - ~/.ssh:/home/claude/.ssh:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}
+    stdin_open: true
+    tty: true
+    cap_add:
+      - SYS_ADMIN
+    command: ["--dangerously-skip-permissions"]

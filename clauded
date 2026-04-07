@@ -1,0 +1,748 @@
+#!/bin/bash
+# clauded: Run Claude Code in Docker.
+#
+#   clauded                         # just start
+#   clauded                         # run again in another terminal, it just works
+#   clauded ~/Documents/specs       # start in a specific directory
+#   clauded --ro ~/Documents/specs  # current dir + read-only extra
+#   clauded list                    # see what's running
+#   clauded stop-all               # done for the day
+
+set -eo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")")" && pwd)"
+IMAGE_NAME="claude-code:latest"
+PREFIX="claude"
+SOUND_PORT="${CLAUDE_SOUND_PORT:-21563}"
+CLIPBOARD_PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
+CHROME_MCP_PORT="${CLAUDE_CHROME_MCP_PORT:-21565}"
+GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+
+# Load user config (defaults below, overridden by config file)
+DEV_DIR="$HOME/dev"
+EXTRA_MOUNTS=""
+SSH_CONFIG=""
+GITCONFIG=""
+CONFIG_FILE="$HOME/.claude-docker/config"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    cp "$SCRIPT_DIR/config.example" "$CONFIG_FILE" 2>/dev/null || true
+fi
+[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+log() { echo -e "${BLUE}[claude]${NC} $*"; }
+err() { echo -e "${RED}[claude]${NC} $*" >&2; }
+ok()  { echo -e "${GREEN}[claude]${NC} $*"; }
+
+auto_name() { printf '%04x' $((RANDOM % 65536)); }
+
+cname() { echo "${PREFIX}-${1}"; }
+
+SESSION_INDEX="$HOME/.claude-docker/session-names.json"
+
+# Resolve a session name or UUID to its canonical UUID.
+resolve_session_id() {
+    local input="$1"
+    # Already a UUID?
+    if [[ "$input" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        echo "$input"
+        return
+    fi
+    # Look up name in the index
+    if [[ -f "$SESSION_INDEX" ]]; then
+        local found
+        found="$(python3 -c "import json; d=json.load(open('$SESSION_INDEX')); print(d.get('$input',''))" 2>/dev/null)"
+        if [[ -n "$found" ]]; then
+            echo "$found"
+            return
+        fi
+    fi
+    # Fallback: return input as-is
+    echo "$input"
+}
+
+# Update the session name→UUID index
+update_session_index() {
+    local sid="$1" name="$2"
+    [[ -z "$sid" || -z "$name" ]] && return
+    mkdir -p "$(dirname "$SESSION_INDEX")"
+    python3 -c "
+import json, os
+path = '$SESSION_INDEX'
+d = {}
+if os.path.exists(path):
+    try: d = json.load(open(path))
+    except: pass
+d['$name'] = '$sid'
+json.dump(d, open(path, 'w'), indent=2)
+" 2>/dev/null
+}
+
+ensure_claude_json_symlink() {
+    # One-time migration: move ~/.claude.json into ~/.claude/ and symlink it.
+    # This lets the directory mount (not file mount) cover .claude.json,
+    # so Claude Code's atomic writes work correctly in Docker.
+    if [[ -f "$HOME/.claude.json" && ! -L "$HOME/.claude.json" ]]; then
+        log "Migrating .claude.json into ~/.claude/ (one-time setup)..."
+        cp "$HOME/.claude.json" "$HOME/.claude/.claude.json"
+        mv "$HOME/.claude.json" "$HOME/.claude.json.pre-symlink-backup"
+        ln -s "$HOME/.claude/.claude.json" "$HOME/.claude.json"
+        ok "Done. Backup at ~/.claude.json.pre-symlink-backup"
+    fi
+}
+
+ensure_ready() {
+    ensure_claude_json_symlink
+    if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+        log "Image not found. Building..."
+        cmd_build
+    else
+        # Check for Claude Code updates
+        local current latest
+        current="$(docker run --rm --entrypoint claude "$IMAGE_NAME" --version 2>/dev/null | head -1 | awk '{print $1}')" || true
+        latest="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || true
+        if [[ -n "$latest" && -n "$current" && "$current" != "$latest" ]]; then
+            log "Updating Claude Code: $current → $latest"
+            cmd_build
+        fi
+    fi
+    # Warn if running containers are using too much memory
+    local mem_mb
+    mem_mb="$(docker stats --no-stream --format '{{.MemUsage}}' $(docker ps -q --filter "name=${PREFIX}-" 2>/dev/null) 2>/dev/null \
+        | awk -F'/' '{split($1,a," "); gsub(/[^0-9.]/,"",a[1]); if(a[1]+0 > 0) { if(index(a[2],"GiB")) s+=a[1]*1024; else s+=a[1] }} END {printf "%d", s}')" || mem_mb=0
+    if [[ "$mem_mb" -gt 3000 ]]; then
+        echo -e "${YELLOW}[claude]${NC} Running sessions are using ${mem_mb}MB of memory:"
+        docker ps --filter "name=${PREFIX}-" --format "  {{.Names}}\t{{.RunningFor}}" 2>/dev/null
+        echo -e "${YELLOW}[claude]${NC} Consider stopping idle sessions: clauded stop-all"
+    fi
+    if ! curl -sf "http://localhost:${SOUND_PORT}/" >/dev/null 2>&1; then
+        nohup python3 "$SCRIPT_DIR/sound-server.py" --port "$SOUND_PORT" >/dev/null 2>&1 &
+    fi
+    if ! curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+        nohup python3 "$SCRIPT_DIR/clipboard-server.py" --port "$CLIPBOARD_PORT" >/dev/null 2>&1 &
+    fi
+    if [[ "${USE_CHROME:-}" == "true" ]] && ! curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
+        log "Starting Chrome MCP bridge..."
+        nohup python3 "$SCRIPT_DIR/chrome-mcp-bridge.py" --port "$CHROME_MCP_PORT" >/dev/null 2>&1 &
+        sleep 2
+    fi
+}
+
+resolve_host_path() {
+    local input="${1:-$(pwd)}"
+    input="${input/#\~/$HOME}"
+    if [[ "$input" = /* ]]; then
+        echo "$input"
+    else
+        echo "$(pwd)/$input"
+    fi
+}
+
+# Sets two globals: RESOLVED_WORKDIR and RESOLVED_MOUNT
+resolve_workdir() {
+    local host_path="$1"
+    if [[ "$host_path" == "$DEV_DIR"* ]]; then
+        # Path mirroring: use the same path inside the container
+        RESOLVED_WORKDIR="$host_path"
+        RESOLVED_MOUNT=""
+    else
+        RESOLVED_WORKDIR="$host_path"
+        RESOLVED_MOUNT="-v ${host_path}:${host_path}"
+    fi
+}
+
+collect_mounts() {
+    EXTRA_MOUNT_FLAGS=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ro)
+                shift
+                local p; p="$(resolve_host_path "$1")"
+                EXTRA_MOUNT_FLAGS+=("-v" "${p}:${p}:ro")
+                shift ;;
+            --mount)
+                shift
+                local m="${1/#\~/$HOME}"
+                EXTRA_MOUNT_FLAGS+=("-v" "$m")
+                shift ;;
+            *) shift ;;
+        esac
+    done
+}
+
+docker_run() {
+    local name="$1" workdir="$2" interactive="$3"
+    shift 3
+    local flags=()
+    [[ "$interactive" == "true" ]] && flags+=("-it")
+    # Persist the entire container home so auth/config survives restarts
+    mkdir -p "$HOME/.claude-docker/home"
+    # Symlink .claude.json (skip if already exists to avoid disrupting running sessions)
+    [[ ! -L "$HOME/.claude-docker/home/.claude.json" ]] && \
+        ln -sf "$HOME/.claude/.claude.json" "$HOME/.claude-docker/home/.claude.json"
+    rm -f "$HOME/.claude-docker/home/.mcp.json"
+    # Inject Chrome MCP bridge config only when --chrome is passed
+    if [[ "${USE_CHROME:-}" == "true" ]] && curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
+        echo '{"mcpServers":{"claude-in-chrome":{"type":"http","url":"http://host.docker.internal:'"${CHROME_MCP_PORT}"'/mcp"}}}' \
+            > "$HOME/.claude-docker/home/.mcp.json"
+    fi
+    # If a container with this name exists, make the name unique
+    # (happens with /branch — same session UUID, needs separate container)
+    if docker ps -a -q --filter "name=^${name}$" 2>/dev/null | grep -q .; then
+        name="${name}-$(auto_name)"
+    fi
+    flags+=(
+        --rm
+        --name "$name"
+        --cap-add=SYS_ADMIN
+        -e "HOME=$HOME"
+        -v "$HOME/.claude-docker/home:$HOME"
+        -v "$DEV_DIR:$DEV_DIR"
+        -v "$HOME/.claude:$HOME/.claude"
+        -v "$HOME/.ssh:$HOME/.ssh:ro"
+        -v "$HOME/.config/gh:$HOME/.config/gh:ro"
+        -e "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-1}"
+        -e "CLAUDE_DOCKER=1"
+        -e "TERM=${TERM:-xterm-256color}"
+        -e "FORCE_COLOR=1"
+        -w "$workdir"
+    )
+
+    # Optional SSH config override
+    if [[ -n "$SSH_CONFIG" && -f "$SSH_CONFIG" ]]; then
+        flags+=(-v "$SSH_CONFIG:$HOME/.ssh/config:ro")
+    fi
+
+    # Optional gitconfig override
+    if [[ -n "$GITCONFIG" && -f "$GITCONFIG" ]]; then
+        flags+=(-v "$GITCONFIG:$HOME/.gitconfig:ro")
+    fi
+
+    # Extra mount directories from config
+    for mount_path in $EXTRA_MOUNTS; do
+        mount_path="${mount_path/#\~/$HOME}"
+        if [[ -d "$mount_path" ]]; then
+            flags+=(-v "$mount_path:$mount_path")
+        fi
+    done
+
+    # Add port mappings if requested
+    flags+=("${PORT_FLAGS[@]+"${PORT_FLAGS[@]}"}")
+
+    # Per-session /tmp/ — persists across resume, isolated between sessions
+    mkdir -p "$HOME/.claude-docker/tmp/$name"
+    flags+=(-v "$HOME/.claude-docker/tmp/$name:/tmp")
+
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+        flags+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
+    fi
+
+    # Forward GitHub auth from host keyring
+    local gh_token
+    gh_token="$(gh auth token 2>/dev/null)" || true
+    if [[ -n "$gh_token" ]]; then
+        flags+=(-e "GH_TOKEN=${gh_token}")
+    fi
+
+    # Use script to capture terminal output while preserving interactive mode
+    local resume_log="$HOME/.claude-docker/tmp/$name/resume.log"
+    script -q "$resume_log" docker run "${flags[@]}" "$@" "$IMAGE_NAME" --dangerously-skip-permissions ${CLAUDE_EXTRA_FLAGS:-} "${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}" || true
+    # Parse session ID or name from Claude's own "claude --resume" output
+    IFS=$'\t' read -r last_id last_name < <(python3 -c "
+import re, json, os
+
+log = open('$resume_log', errors='replace').read()
+# Strip ANSI escape codes
+log = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07', '', log)
+
+sid = ''
+name = ''
+
+# Try UUID first
+m = re.search(r'claude --resume ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', log)
+if m:
+    sid = m.group(1)
+else:
+    # Try quoted name
+    m = re.search(r'claude --resume \"([^\"]+)\"', log)
+    if m:
+        name = m.group(1)
+        # Look up UUID from session index
+        idx_path = '$HOME/.claude-docker/session-names.json'
+        if os.path.exists(idx_path):
+            try:
+                sid = json.load(open(idx_path)).get(name, '')
+            except: pass
+
+if not sid and not name:
+    exit()
+
+# Extract agent name from JSONL if we have a UUID but no name
+if sid and not name:
+    workdir_encoded = '$workdir'.replace('/', '-').replace('.', '-')
+    jsonl = os.path.join('$HOME/.claude/projects', workdir_encoded, sid + '.jsonl')
+    if os.path.exists(jsonl):
+        with open(jsonl) as f:
+            for line in f:
+                try:
+                    msg = json.loads(line)
+                    if msg.get('type') == 'agent-name':
+                        name = msg.get('agentName', '')
+                except: pass
+
+print(f'{sid}\t{name}')
+" 2>/dev/null)
+    # Update the session name index
+    if [[ -n "$last_name" && -n "$last_id" ]]; then
+        update_session_index "$last_id" "$last_name"
+    fi
+
+    echo ""
+    local resume_hint="${last_name:-$last_id}"
+    if [[ -n "$resume_hint" ]]; then
+        echo "  clauded --resume \"$resume_hint\""
+    else
+        echo "  clauded --resume"
+    fi
+}
+
+cmd_start() {
+    local path_arg=""
+    local flag_args=()
+    local claude_args=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --ro|--mount)
+                flag_args+=("$1" "$2")
+                shift 2 ;;
+            --worktree|-w)
+                claude_args+=(--worktree)
+                if [[ -n "${2:-}" ]] && [[ "$2" != -* ]]; then
+                    claude_args+=("$2"); shift
+                fi
+                shift ;;
+            --agent)
+                claude_args+=(--agent "$2")
+                shift 2
+                # Consume the prompt if present
+                if [[ -n "${1:-}" ]] && [[ "$1" != -* ]]; then
+                    claude_args+=("$1"); shift
+                fi ;;
+            -r|--resume|--fork-session)
+                flag_name="$1"
+                if [[ -n "${2:-}" ]] && [[ "$2" != -* ]]; then
+                    RESUME_ID="$(resolve_session_id "$2")"
+                    CLAUDE_EXTRA_FLAGS="$flag_name $RESUME_ID"; shift 2
+                    # Derive workdir from the session file's project directory
+                    # (the project dir name encodes the path Claude Code uses to find the session)
+                    session_file="$(find "$HOME/.claude/projects" -name "${RESUME_ID}.jsonl" 2>/dev/null | head -1)"
+                    if [[ -n "$session_file" ]]; then
+                        path_arg="$(python3 -c "
+import os
+project_dir = os.path.basename(os.path.dirname('$session_file'))
+# Decode: leading - becomes /, internal - stays as-is (ambiguous)
+# But we know the path starts with /Users, so split on that
+encoded = project_dir
+# Replace leading - with /
+path = '/' + encoded.lstrip('-')
+# The encoding replaced / with - and . with -
+# Try to find the actual directory by checking candidates
+import glob
+# Start with the full dev dir and try to match
+best = path
+for candidate in [path.replace('-', '/', 1)]:  # won't work generically
+    pass
+# Simpler: read cwd from JSONL, but also try the parent project path
+cwd = ''
+with open('$session_file') as f:
+    for line in f:
+        try:
+            import json
+            msg = json.loads(line)
+            if 'cwd' in msg:
+                cwd = msg['cwd']
+                break
+        except: pass
+# Try parent paths until we find one that matches a project dir
+parts = cwd.rstrip('/').split('/')
+for i in range(len(parts), 0, -1):
+    candidate = '/'.join(parts[:i])
+    candidate_encoded = candidate.replace('/', '-').replace('.', '-')
+    if candidate_encoded == project_dir:
+        print(candidate)
+        break
+else:
+    print(cwd)
+" 2>/dev/null)"
+                    fi
+                elif [[ "$flag_name" == "--resume" ]]; then
+                    CLAUDE_EXTRA_FLAGS="--continue"; shift
+                else
+                    err "--fork-session requires a session ID or name"
+                    exit 1
+                fi ;;
+            --continue)
+                CLAUDE_EXTRA_FLAGS="--continue"
+                shift ;;
+            --chrome)
+                USE_CHROME="true"
+                shift ;;
+            --port)
+                PORT_FLAGS+=(-p "$2:$2")
+                shift 2 ;;
+            -p|--prompt)
+                claude_args+=("$1" "$2")
+                shift 2 ;;
+            -*)
+                claude_args+=("$1")
+                shift ;;
+            *)
+                if [[ -z "$path_arg" ]]; then
+                    path_arg="$1"
+                else
+                    claude_args+=("$1")
+                fi
+                shift ;;
+        esac
+    done
+
+    ensure_ready
+
+    local session
+    if [[ -n "${RESUME_ID:-}" ]]; then
+        # Use the first 12 chars of the UUID for a stable container name
+        # Sanitize to Docker-safe characters (alphanumeric, dash, dot, underscore)
+        session="$(echo "$RESUME_ID" | tr -cs 'a-zA-Z0-9._-' '-' | cut -c1-12 | sed 's/-$//')"
+    else
+        session="$(auto_name)"
+    fi
+    local cn; cn="$(cname "$session")"
+    local host_path; host_path="$(resolve_host_path "$path_arg")"
+
+    resolve_workdir "$host_path"
+    local workdir="$RESOLVED_WORKDIR"
+    local mount_flag="$RESOLVED_MOUNT"
+
+    local extra_mounts=()
+    if [[ -n "$mount_flag" && "$host_path" != "$HOME" ]]; then
+        extra_mounts+=(-v "${host_path}:${host_path}")
+    fi
+
+    collect_mounts "${flag_args[@]+"${flag_args[@]}"}"
+    extra_mounts+=("${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}")
+
+    log "Session '${session}' → ${host_path}"
+    [[ -n "$mount_flag" && "$host_path" != "$HOME" ]] && log "  (auto-mounted from outside ~/dev)"
+    CLAUDE_EXTRA_ARGS=("${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}" "${claude_args[@]+"${claude_args[@]}"}")
+    docker_run "$cn" "$workdir" "true" "${extra_mounts[@]+"${extra_mounts[@]}"}"
+}
+
+cmd_run() {
+    local prompt="${1:-}"; shift 2>/dev/null || true
+
+    if [[ -z "$prompt" ]]; then
+        err "Usage: clauded run \"prompt\" [--ro /path ...]"
+        exit 1
+    fi
+
+    ensure_ready
+
+    local session; session="$(auto_name)"
+    local cn; cn="$(cname "$session")"
+    local host_path; host_path="$(resolve_host_path "")"
+
+    resolve_workdir "$host_path"
+    local workdir="$RESOLVED_WORKDIR"
+    local mount_flag="$RESOLVED_MOUNT"
+
+    local extra_mounts=()
+    if [[ -n "$mount_flag" && "$host_path" != "$HOME" ]]; then
+        extra_mounts+=(-v "${host_path}:${host_path}")
+    fi
+
+    collect_mounts "$@"
+    extra_mounts+=("${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}")
+
+    log "Running prompt in '${session}'"
+    docker_run "$cn" "$workdir" "false" "${extra_mounts[@]+"${extra_mounts[@]}"}" -p "$prompt"
+}
+
+cmd_shell() {
+    local cn="${1:-}"
+    if [[ -z "$cn" ]]; then
+        cn="$(docker ps --filter "name=${PREFIX}-" --format '{{.Names}}' | head -1)"
+        if [[ -z "$cn" ]]; then
+            err "No running sessions."
+            exit 1
+        fi
+    else
+        cn="$(cname "$cn")"
+    fi
+    docker exec -it "$cn" bash
+}
+
+cmd_list() {
+    echo -e "${GREEN}Running:${NC}"
+    local running
+    running="$(docker ps --filter "name=${PREFIX}-" --format "  {{.Names}}\t{{.Status}}\t{{.RunningFor}}" 2>/dev/null)"
+    if [[ -n "$running" ]]; then
+        echo "$running"
+    else
+        echo "  (none)"
+    fi
+}
+
+cmd_stop() {
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        target="$(docker ps --filter "name=${PREFIX}-" --format '{{.Names}}' | head -1)"
+        if [[ -z "$target" ]]; then
+            err "No running sessions."
+            exit 1
+        fi
+        docker stop "$target" 2>/dev/null
+        ok "Stopped ${target}."
+    else
+        local cn; cn="$(cname "$target")"
+        docker stop "$cn" 2>/dev/null
+        ok "Stopped '${target}'."
+    fi
+}
+
+cmd_stop_all() {
+    local ids
+    ids="$(docker ps -q --filter "name=${PREFIX}-" 2>/dev/null)"
+    if [[ -n "$ids" ]]; then
+        echo "$ids" | xargs docker stop 2>/dev/null
+    fi
+    ok "All sessions stopped."
+}
+
+cmd_build() {
+    log "Building image..."
+    local ver
+    ver="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || ver="latest"
+    docker build \
+        --build-arg CLAUDE_VERSION="$ver" \
+        --build-arg USER_ID="$(id -u)" \
+        --build-arg GROUP_ID="$(id -g)" \
+        --build-arg HOME_DIR="$HOME" \
+        -t "$IMAGE_NAME" "$SCRIPT_DIR"
+    # Clean up old images and build cache left behind by previous builds
+    docker image prune -f >/dev/null 2>&1
+    docker builder prune -f >/dev/null 2>&1
+    ok "Image ready ($ver)."
+}
+
+cmd_firewall() {
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        target="$(docker ps --filter "name=${PREFIX}-" --format '{{.Names}}' | head -1)"
+    else
+        target="$(cname "$target")"
+    fi
+    docker exec -u root "$target" /usr/local/bin/init-firewall.sh
+    ok "Firewall enabled for ${target}."
+}
+
+cmd_sounds() {
+    case "${1:-status}" in
+        start)
+            if curl -sf "http://localhost:${SOUND_PORT}/?sound=Pop" >/dev/null 2>&1; then
+                ok "Sound server already running."
+            else
+                log "Starting sound server on port ${SOUND_PORT}..."
+                nohup python3 "$SCRIPT_DIR/sound-server.py" --port "$SOUND_PORT" >/dev/null 2>&1 &
+                sleep 0.5
+                if curl -sf "http://localhost:${SOUND_PORT}/?sound=Pop" >/dev/null 2>&1; then
+                    ok "Sound server started."
+                else
+                    err "Failed to start sound server."
+                fi
+            fi ;;
+        stop)
+            pkill -f "sound-server.py" 2>/dev/null && ok "Sound server stopped." || err "Not running." ;;
+        install)
+            cat > ~/Library/LaunchAgents/com.claude.sound-server.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.claude.sound-server</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/python3</string><string>$SCRIPT_DIR/sound-server.py</string></array>
+  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/tmp/claude-sound-server.log</string>
+</dict></plist>
+PLIST
+            launchctl load ~/Library/LaunchAgents/com.claude.sound-server.plist
+            ok "Sound server installed. Auto-starts on login." ;;
+        uninstall)
+            launchctl unload ~/Library/LaunchAgents/com.claude.sound-server.plist 2>/dev/null
+            rm -f ~/Library/LaunchAgents/com.claude.sound-server.plist
+            ok "Sound server uninstalled." ;;
+        status)
+            if curl -sf "http://localhost:${SOUND_PORT}/" >/dev/null 2>&1; then
+                ok "Sound server running on port ${SOUND_PORT}."
+            else
+                echo -e "${YELLOW}Sound server not running.${NC} Run: clauded sounds start"
+            fi ;;
+    esac
+}
+
+cmd_clipboard() {
+    case "${1:-status}" in
+        start)
+            if curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+                ok "Clipboard server already running."
+            else
+                log "Starting clipboard server on port ${CLIPBOARD_PORT}..."
+                nohup python3 "$SCRIPT_DIR/clipboard-server.py" --port "$CLIPBOARD_PORT" >/dev/null 2>&1 &
+                sleep 0.5
+                if curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+                    ok "Clipboard server started."
+                else
+                    err "Failed to start clipboard server."
+                fi
+            fi ;;
+        stop)
+            pkill -f "clipboard-server.py" 2>/dev/null && ok "Clipboard server stopped." || err "Not running." ;;
+        install)
+            cat > ~/Library/LaunchAgents/com.claude.clipboard-server.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.claude.clipboard-server</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/python3</string><string>$SCRIPT_DIR/clipboard-server.py</string></array>
+  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/tmp/claude-clipboard-server.log</string>
+</dict></plist>
+PLIST
+            launchctl load ~/Library/LaunchAgents/com.claude.clipboard-server.plist
+            ok "Clipboard server installed. Auto-starts on login." ;;
+        uninstall)
+            launchctl unload ~/Library/LaunchAgents/com.claude.clipboard-server.plist 2>/dev/null
+            rm -f ~/Library/LaunchAgents/com.claude.clipboard-server.plist
+            ok "Clipboard server uninstalled." ;;
+        status)
+            if curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+                ok "Clipboard server running on port ${CLIPBOARD_PORT}."
+            else
+                echo -e "${YELLOW}Clipboard server not running.${NC} Run: clauded clipboard start"
+            fi ;;
+    esac
+}
+
+cmd_chrome_mcp() {
+    case "${1:-status}" in
+        start)
+            if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
+                ok "Chrome MCP bridge already running."
+            else
+                log "Starting Chrome MCP bridge on port ${CHROME_MCP_PORT}..."
+                nohup python3 "$SCRIPT_DIR/chrome-mcp-bridge.py" --port "$CHROME_MCP_PORT" >/dev/null 2>&1 &
+                sleep 2
+                if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
+                    ok "Chrome MCP bridge started."
+                else
+                    err "Failed to start Chrome MCP bridge."
+                fi
+            fi ;;
+        stop)
+            pkill -f "chrome-mcp-bridge.py" 2>/dev/null && ok "Chrome MCP bridge stopped." || err "Not running." ;;
+        restart)
+            pkill -f "chrome-mcp-bridge.py" 2>/dev/null
+            sleep 1
+            nohup python3 "$SCRIPT_DIR/chrome-mcp-bridge.py" --port "$CHROME_MCP_PORT" >/dev/null 2>&1 &
+            sleep 2
+            if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
+                ok "Chrome MCP bridge restarted."
+            else
+                err "Failed to restart Chrome MCP bridge."
+            fi ;;
+        status)
+            if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
+                ok "Chrome MCP bridge running on port ${CHROME_MCP_PORT}."
+            else
+                echo -e "${YELLOW}Chrome MCP bridge not running.${NC} Run: clauded chrome-mcp start"
+            fi ;;
+    esac
+}
+
+cmd_setup() {
+    log "=== Claude Code Docker Setup ==="
+    echo ""
+    ensure_ready
+    echo ""
+    cmd_sounds start
+    cmd_clipboard start
+    echo ""
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+        ok "ANTHROPIC_API_KEY is set."
+    else
+        log "No API key set (that's fine if you use Pro/Max)."
+        log "On first run, Claude will prompt you to log in."
+        log "It will give you a URL — open it in your Mac browser."
+    fi
+    echo ""
+    if command -v clauded &>/dev/null; then
+        ok "clauded is in PATH."
+    else
+        echo -e "${YELLOW}Add to PATH:${NC}"
+        echo "  ln -s $SCRIPT_DIR/clauded /usr/local/bin/clauded"
+    fi
+    echo ""
+    ok "Ready. Just run: clauded"
+}
+
+case "${1:-__default__}" in
+    __default__)  cmd_start ;;
+    list|ls)      cmd_list ;;
+    stop)         shift; cmd_stop "$@" ;;
+    stop-all)     cmd_stop_all ;;
+    build)        cmd_build ;;
+    firewall)     shift; cmd_firewall "$@" ;;
+    sounds)       shift; cmd_sounds "$@" ;;
+    clipboard)    shift; cmd_clipboard "$@" ;;
+    chrome-mcp)   shift; cmd_chrome_mcp "$@" ;;
+    setup)        cmd_setup ;;
+    shell)        shift; cmd_shell "$@" ;;
+    run)          shift; cmd_run "$@" ;;
+    help|-h|--help)
+        cat <<'HELP'
+clauded: Claude Code in Docker
+
+  clauded                                      Start a session in current dir
+  clauded ~/some/path                          Start in a specific dir
+  clauded --resume                             Resume last conversation
+  clauded --resume <id-or-name>                Resume specific session
+  clauded --worktree                           Start in a git worktree
+  clauded --worktree <name>                    Named worktree
+  clauded --agent <name> "prompt"              Run a Claude agent
+  clauded --chrome                              Enable Chrome browser control
+  clauded --port 4000                          Expose port 4000 to Mac
+  clauded --port 4000-4010                     Expose port range
+  clauded --ro ~/extra/files                   Current dir + read-only extra
+
+  Flags combine:
+  clauded --resume abc123 --port 4000-4010
+  clauded --worktree --port 4000
+  clauded --agent myagent "prompt" --port 3000
+
+  Operations:
+  clauded list                                 See running sessions
+  clauded stop                                 Stop most recent session
+  clauded stop-all                             Stop everything
+  clauded run "prompt"                         Quick non-interactive query
+  clauded shell                                Bash into most recent session
+  clauded build                                Build/rebuild Docker image
+  clauded firewall                             Lock down network access
+  clauded sounds start|install                 Sound server for notifications
+  clauded clipboard start|install              Clipboard server for /copy
+  clauded chrome-mcp start|stop|restart       Chrome MCP bridge for browser control
+
+Each invocation gets an auto-generated name. Run as many as you want.
+HELP
+        ;;
+    *)  cmd_start "$@" ;;
+esac
