@@ -4,17 +4,22 @@
 
 set -eo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; NC='\033[0m'
 log() { echo -e "${BLUE}[clauded]${NC} $*"; }
 ok()  { echo -e "${GREEN}[clauded]${NC} $*"; }
 err() { echo -e "${RED}[clauded]${NC} $*" >&2; }
 
 INSTALL_DIR="${CLAUDED_DIR:-$HOME/.clauded}"
-BIN_LINK="/usr/local/bin/clauded"
+BIN_DIR="/usr/local/bin"
 
 # Check prerequisites
 if ! command -v docker &>/dev/null; then
     err "Docker not found. Install Docker Desktop first: https://docker.com/products/docker-desktop"
+    exit 1
+fi
+
+if ! docker info &>/dev/null; then
+    err "Docker Desktop is not running. Start it and try again."
     exit 1
 fi
 
@@ -38,18 +43,30 @@ cd "$INSTALL_DIR"
 log "Building Docker image (this takes a few minutes on first install)..."
 ./clauded build
 
-# Symlink to PATH
-if [[ -w "$(dirname "$BIN_LINK")" ]]; then
-    ln -sf "$INSTALL_DIR/clauded" "$BIN_LINK"
+# Symlink clauded and play-sound to PATH
+log "Adding to PATH..."
+if [[ -w "$BIN_DIR" ]]; then
+    ln -sf "$INSTALL_DIR/clauded" "$BIN_DIR/clauded"
+    ln -sf "$INSTALL_DIR/play-sound" "$BIN_DIR/play-sound"
 else
-    log "Adding clauded to PATH (requires sudo)..."
-    sudo ln -sf "$INSTALL_DIR/clauded" "$BIN_LINK"
+    sudo ln -sf "$INSTALL_DIR/clauded" "$BIN_DIR/clauded"
+    sudo ln -sf "$INSTALL_DIR/play-sound" "$BIN_DIR/play-sound"
 fi
+
+# Start host services
+log "Starting host services..."
+./clauded sounds start
+./clauded clipboard start
 
 echo ""
 ok "Installed successfully."
 echo ""
-echo "  Run:     clauded"
-echo "  Update:  clauded build"
-echo "  Help:    clauded help"
+echo "  Run:              clauded"
+echo "  Resume session:   clauded -r <name-or-id>"
+echo "  Update:           clauded build"
+echo "  Help:             clauded help"
+echo ""
+echo -e "  ${YELLOW}Optional:${NC} Auto-start services on login:"
+echo "    clauded sounds install"
+echo "    clauded clipboard install"
 echo ""

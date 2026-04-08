@@ -30,7 +30,7 @@ Claude Code runs with full filesystem access. Docker gives you sandboxed session
 ## Prerequisites
 
 - macOS (Apple Silicon or Intel)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (must be running)
 - A Claude account (Pro, Max, Teams, or Enterprise)
 
 ## Quick Start
@@ -39,19 +39,32 @@ Claude Code runs with full filesystem access. Docker gives you sandboxed session
 curl -fsSL https://raw.githubusercontent.com/nj-io/clauded/main/install.sh | bash
 ```
 
-Or manually:
+This clones the repo, builds the Docker image, symlinks `clauded` and `play-sound` to your PATH, and starts the clipboard/sound host services.
+
+<details>
+<summary>Manual installation</summary>
 
 ```bash
 git clone https://github.com/nj-io/clauded.git ~/.clauded
 cd ~/.clauded && ./clauded build
-sudo ln -s ~/.clauded/clauded /usr/local/bin/clauded
+sudo ln -sf ~/.clauded/clauded /usr/local/bin/clauded
+sudo ln -sf ~/.clauded/play-sound /usr/local/bin/play-sound
 ```
+
+</details>
 
 On first run, clauded will:
 1. Build the Docker image with Chromium, Node.js, Python, and Claude Code
 2. Start the clipboard and sound servers on your Mac
 3. Migrate `~/.claude.json` into `~/.claude/` (one-time symlink for Docker compatibility)
-4. Prompt you to log in via a URL opened in your browser
+4. Open a login URL in your browser — authenticate with your Claude account
+
+Optional: auto-start host services on login so they're always ready:
+
+```bash
+clauded sounds install
+clauded clipboard install
+```
 
 ## Usage
 
