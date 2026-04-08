@@ -116,7 +116,7 @@ clauded setup                              # Full setup wizard
 
 ## Configuration
 
-User settings live in `~/.claude-docker/config` (auto-created on first run):
+User settings live in `~/.clauded/config` (auto-created on first run):
 
 ```bash
 # Project directory mounted into containers
@@ -165,7 +165,7 @@ clauded runs Claude Code inside Docker while bridging Mac features via lightweig
   <img src="assets/architecture.png" alt="clauded architecture" width="90%">
 </p>
 
-Sessions share `~/.claude/` via bind mount. Each container gets isolated `/tmp`. The persistent Docker home at `~/.claude-docker/home` survives container restarts.
+Sessions share `~/.claude/` via bind mount. Each container gets isolated `/tmp`. The persistent Docker home at `~/.clauded/home` survives container restarts.
 
 ## Parallel Sessions
 

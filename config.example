@@ -1,5 +1,5 @@
 # clauded configuration
-# Copy to ~/.claude-docker/config and edit.
+# Copy to ~/.clauded/config and edit.
 # Created automatically on first run if it doesn't exist.
 
 # Project directory — mounted read-write into containers

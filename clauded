@@ -18,12 +18,17 @@ CLIPBOARD_PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
 CHROME_MCP_PORT="${CLAUDE_CHROME_MCP_PORT:-21565}"
 GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
 
+# Migrate from old .claude-docker directory if it exists
+if [[ -d "$HOME/.claude-docker" && ! -d "$HOME/.clauded" ]]; then
+    mv "$HOME/.claude-docker" "$HOME/.clauded"
+fi
+
 # Load user config (defaults below, overridden by config file)
 DEV_DIR="$HOME/dev"
 EXTRA_MOUNTS=""
 SSH_CONFIG=""
 GITCONFIG=""
-CONFIG_FILE="$HOME/.claude-docker/config"
+CONFIG_FILE="$HOME/.clauded/config"
 if [[ ! -f "$CONFIG_FILE" ]]; then
     mkdir -p "$(dirname "$CONFIG_FILE")"
     cp "$SCRIPT_DIR/config.example" "$CONFIG_FILE" 2>/dev/null || true
@@ -39,7 +44,7 @@ auto_name() { printf '%04x' $((RANDOM % 65536)); }
 
 cname() { echo "${PREFIX}-${1}"; }
 
-SESSION_INDEX="$HOME/.claude-docker/session-names.json"
+SESSION_INDEX="$HOME/.clauded/session-names.json"
 
 # Resolve a session name or UUID to its canonical UUID.
 resolve_session_id() {
@@ -177,15 +182,15 @@ docker_run() {
     local flags=()
     [[ "$interactive" == "true" ]] && flags+=("-it")
     # Persist the entire container home so auth/config survives restarts
-    mkdir -p "$HOME/.claude-docker/home"
+    mkdir -p "$HOME/.clauded/home"
     # Symlink .claude.json (skip if already exists to avoid disrupting running sessions)
-    [[ ! -L "$HOME/.claude-docker/home/.claude.json" ]] && \
-        ln -sf "$HOME/.claude/.claude.json" "$HOME/.claude-docker/home/.claude.json"
-    rm -f "$HOME/.claude-docker/home/.mcp.json"
+    [[ ! -L "$HOME/.clauded/home/.claude.json" ]] && \
+        ln -sf "$HOME/.claude/.claude.json" "$HOME/.clauded/home/.claude.json"
+    rm -f "$HOME/.clauded/home/.mcp.json"
     # Inject Chrome MCP bridge config only when --chrome is passed
     if [[ "${USE_CHROME:-}" == "true" ]] && curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
         echo '{"mcpServers":{"claude-in-chrome":{"type":"http","url":"http://host.docker.internal:'"${CHROME_MCP_PORT}"'/mcp"}}}' \
-            > "$HOME/.claude-docker/home/.mcp.json"
+            > "$HOME/.clauded/home/.mcp.json"
     fi
     # If a container with this name exists, make the name unique
     # (happens with /branch — same session UUID, needs separate container)
@@ -197,7 +202,7 @@ docker_run() {
         --name "$name"
         --cap-add=SYS_ADMIN
         -e "HOME=$HOME"
-        -v "$HOME/.claude-docker/home:$HOME"
+        -v "$HOME/.clauded/home:$HOME"
         -v "$DEV_DIR:$DEV_DIR"
         -v "$HOME/.claude:$HOME/.claude"
         -v "$HOME/.ssh:$HOME/.ssh:ro"
@@ -231,8 +236,8 @@ docker_run() {
     flags+=("${PORT_FLAGS[@]+"${PORT_FLAGS[@]}"}")
 
     # Per-session /tmp/ — persists across resume, isolated between sessions
-    mkdir -p "$HOME/.claude-docker/tmp/$name"
-    flags+=(-v "$HOME/.claude-docker/tmp/$name:/tmp")
+    mkdir -p "$HOME/.clauded/tmp/$name"
+    flags+=(-v "$HOME/.clauded/tmp/$name:/tmp")
 
     if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
         flags+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
@@ -246,7 +251,7 @@ docker_run() {
     fi
 
     # Use script to capture terminal output while preserving interactive mode
-    local resume_log="$HOME/.claude-docker/tmp/$name/resume.log"
+    local resume_log="$HOME/.clauded/tmp/$name/resume.log"
     script -q "$resume_log" docker run "${flags[@]}" "$@" "$IMAGE_NAME" --dangerously-skip-permissions ${CLAUDE_EXTRA_FLAGS:-} "${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}" || true
     # Parse session ID or name from Claude's own "claude --resume" output
     IFS=$'\t' read -r last_id last_name < <(python3 -c "
@@ -269,7 +274,7 @@ else:
     if m:
         name = m.group(1)
         # Look up UUID from session index
-        idx_path = '$HOME/.claude-docker/session-names.json'
+        idx_path = '$HOME/.clauded/session-names.json'
         if os.path.exists(idx_path):
             try:
                 sid = json.load(open(idx_path)).get(name, '')
