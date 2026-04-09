@@ -21,11 +21,21 @@
 
 Claude Code runs with full filesystem access. Docker gives you sandboxed sessions without sacrificing the features you rely on: clipboard, browser links, git, MCP servers, and sound notifications all bridge to your Mac transparently.
 
-- Run multiple sessions in parallel across different projects
-- Resume any session by name or ID
-- Control Chrome from inside Docker
-- Use MCP servers (xactions, Playwright, context7, etc.)
-- Every session is isolated — one can't break another
+## Features
+
+- **Parallel sessions** — run as many sessions as you want across different projects, simultaneously
+- **Resume by name or ID** — session names are tracked automatically, `clauded -r my-session` picks up where you left off
+- **Clipboard bridge** — `/copy` inside Docker copies to your Mac's clipboard
+- **URL opening** — links clicked inside Docker open in your Mac browser
+- **Sound notifications** — hear when Claude finishes a task
+- **Chrome browser control** — navigate, click, screenshot, read console from your Mac's Chrome via `--chrome`
+- **MCP server support** — stdio and HTTP MCPs work inside Docker, with Chromium pre-installed for Puppeteer/Playwright
+- **Auto-update** — checks for new Claude Code versions on startup and rebuilds the image when one is available
+- **Git and SSH** — all SSH keys mounted, GitHub auth forwarded via `GH_TOKEN`
+- **Per-session isolation** — each session gets its own `/tmp`, container name, and resume log
+- **Memory warnings** — alerts when running containers exceed 3GB total
+- **Image cleanup** — old Docker images and build cache pruned automatically after each build
+- **Configurable** — project directory, extra mounts, SSH/git overrides all in `~/.clauded/config`
 
 ## Prerequisites
 
