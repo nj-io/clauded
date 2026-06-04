@@ -103,13 +103,15 @@ ensure_ready() {
         log "Image not found. Building..."
         cmd_build
     else
-        # Check for Claude Code updates
-        local current latest
-        current="$(docker run --rm --entrypoint claude "$IMAGE_NAME" --version 2>/dev/null | head -1 | awk '{print $1}')" || true
-        latest="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || true
-        if [[ -n "$latest" && -n "$current" && "$current" != "$latest" ]]; then
-            log "Updating Claude Code: $current → $latest"
-            cmd_build
+        # Check for Claude Code updates (skip with --no-update or SKIP_UPDATE=true in config)
+        if [[ "${SKIP_UPDATE:-}" != "true" ]]; then
+            local current latest
+            current="$(docker run --rm --entrypoint claude "$IMAGE_NAME" --version 2>/dev/null | head -1 | awk '{print $1}')" || true
+            latest="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || true
+            if [[ -n "$latest" && -n "$current" && "$current" != "$latest" ]]; then
+                log "Updating Claude Code: $current → $latest"
+                cmd_build
+            fi
         fi
     fi
     # Warn if running containers are using too much memory
@@ -396,6 +398,9 @@ else:
                 shift ;;
             --chrome)
                 USE_CHROME="true"
+                shift ;;
+            --no-update)
+                SKIP_UPDATE="true"
                 shift ;;
             --port)
                 PORT_FLAGS+=(-p "$2:$2")
@@ -728,6 +733,7 @@ clauded: Claude Code in Docker
   clauded --worktree <name>                    Named worktree
   clauded --agent <name> "prompt"              Run a Claude agent
   clauded --chrome                              Enable Chrome browser control
+  clauded --no-update                           Skip auto-update check on startup
   clauded --no-update                           Skip auto-update check on startup
   clauded --port 4000                          Expose port 4000 to Mac
   clauded --port 4000-4010                     Expose port range

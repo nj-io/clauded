@@ -20,3 +20,6 @@ SSH_CONFIG=""
 # Copy gitconfig-docker.example to gitconfig-docker and edit.
 # GITCONFIG="$SCRIPT_DIR/gitconfig-docker"
 GITCONFIG=""
+
+# Skip auto-update check on startup (same as --no-update flag)
+# SKIP_UPDATE="true"

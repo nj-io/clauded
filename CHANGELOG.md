@@ -49,3 +49,7 @@
 21. **One-liner installer.** Added `install.sh` for `curl | bash` installation. Clones repo, builds image, symlinks to PATH.
 
 22. **Container name sanitization.** Session names with spaces or special characters are now sanitized to Docker-safe characters, fixing "Invalid container name" errors when resuming sessions with long names.
+
+## 2026-06-04
+
+23. **`--no-update` flag.** Added `--no-update` to skip the auto-update version check on startup. Useful when you want to stay on the current Claude Code version or start faster. Can also be set permanently with `SKIP_UPDATE="true"` in `~/.clauded/config`.
