@@ -239,9 +239,12 @@ docker_run() {
     mkdir -p "$HOME/.clauded/tmp/$name"
     flags+=(-v "$HOME/.clauded/tmp/$name:/tmp")
 
-    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-        flags+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
-    fi
+    # Forward Anthropic/API env vars if set
+    for var in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL API_TIMEOUT_MS; do
+        if [[ -n "${!var:-}" ]]; then
+            flags+=(-e "$var=${!var}")
+        fi
+    done
 
     # Forward GitHub auth from host keyring
     local gh_token
@@ -397,7 +400,7 @@ else:
             --port)
                 PORT_FLAGS+=(-p "$2:$2")
                 shift 2 ;;
-            -p|--prompt)
+            -p|--prompt|--model)
                 claude_args+=("$1" "$2")
                 shift 2 ;;
             -*)
@@ -725,6 +728,7 @@ clauded: Claude Code in Docker
   clauded --worktree <name>                    Named worktree
   clauded --agent <name> "prompt"              Run a Claude agent
   clauded --chrome                              Enable Chrome browser control
+  clauded --no-update                           Skip auto-update check on startup
   clauded --port 4000                          Expose port 4000 to Mac
   clauded --port 4000-4010                     Expose port range
   clauded --ro ~/extra/files                   Current dir + read-only extra
