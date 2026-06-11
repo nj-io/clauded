@@ -88,6 +88,7 @@ clauded --continue                         # Resume last session
 clauded --worktree                         # Start in a git worktree
 clauded --worktree my-feature              # Named worktree
 clauded --no-update                        # Start without checking for updates
+clauded --version 2.1.150                  # Pin to a specific Claude Code version
 ```
 
 ### Chrome Browser Control

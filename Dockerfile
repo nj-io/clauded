@@ -80,10 +80,14 @@ RUN pip3 install pre-commit --break-system-packages
 
 USER claude
 
-# Install Claude Code via direct installer (more up-to-date than npm)
+# Install Claude Code — pinned version via npm, latest via installer
 ARG CLAUDE_VERSION=latest
-RUN curl -fsSL https://claude.ai/install.sh | bash && \
-    sudo cp ~/.local/bin/claude /usr/local/bin/claude
+RUN if [ "$CLAUDE_VERSION" = "latest" ]; then \
+        curl -fsSL https://claude.ai/install.sh | bash && \
+        sudo cp ~/.local/bin/claude /usr/local/bin/claude; \
+    else \
+        sudo npm install -g @anthropic-ai/claude-code@${CLAUDE_VERSION}; \
+    fi
 
 
 RUN mkdir -p ~/dev ~/.claude && mkdir -m 700 -p ~/.ssh

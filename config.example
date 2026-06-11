@@ -23,3 +23,7 @@ GITCONFIG=""
 
 # Skip auto-update check on startup (same as --no-update flag)
 # SKIP_UPDATE="true"
+
+# Pin to a specific Claude Code version (same as --version flag)
+# Rebuilds the image if the current version doesn't match.
+# CLAUDE_PIN_VERSION="2.1.150"

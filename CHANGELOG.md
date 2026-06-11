@@ -53,3 +53,5 @@
 ## 2026-06-04
 
 23. **`--no-update` flag.** Added `--no-update` to skip the auto-update version check on startup. Useful when you want to stay on the current Claude Code version or start faster. Can also be set permanently with `SKIP_UPDATE="true"` in `~/.clauded/config`.
+
+24. **Version pinning.** Added `--version <semver>` to pin Claude Code to a specific version. Rebuilds the image via npm if the current version doesn't match. Can also be set permanently with `CLAUDE_PIN_VERSION="2.1.150"` in `~/.clauded/config`. The Dockerfile now routes between the installer (latest) and npm (pinned versions).
