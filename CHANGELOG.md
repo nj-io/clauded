@@ -55,3 +55,7 @@
 23. **`--no-update` flag.** Added `--no-update` to skip the auto-update version check on startup. Useful when you want to stay on the current Claude Code version or start faster. Can also be set permanently with `SKIP_UPDATE="true"` in `~/.clauded/config`.
 
 24. **Version pinning.** Added `--version <semver>` to pin Claude Code to a specific version. Rebuilds the image via npm if the current version doesn't match. Can also be set permanently with `CLAUDE_PIN_VERSION="2.1.150"` in `~/.clauded/config`. The Dockerfile now routes between the installer (latest) and npm (pinned versions).
+
+## 2026-06-28
+
+25. **Clipboard fix.** Claude Code's native clipboard detection on Linux requires `DISPLAY` to be set. Without it, the xclip shim was never found. Fixed by setting `DISPLAY=:0` in the container environment.
