@@ -97,7 +97,25 @@ ensure_claude_json_symlink() {
     fi
 }
 
+check_host_networking() {
+    local settings="$HOME/Library/Group Containers/group.com.docker/settings-store.json"
+    if [[ -f "$settings" ]] && python3 -c "import json; exit(0 if json.load(open('$settings')).get('HostNetworkingEnabled') else 1)" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 ensure_ready() {
+    local hint_marker="$HOME/.clauded/.host-net-hint-shown"
+    if ! check_host_networking && [[ ! -f "$hint_marker" ]]; then
+        echo -e "${YELLOW}[claude]${NC} Tip: enable Docker Desktop host networking for automatic port access."
+        echo -e "         Docker Desktop → Settings → Resources → Network → Enable host networking"
+        echo ""
+        read -rsn1 -p "  Press any key to continue..."
+        echo ""
+        mkdir -p "$(dirname "$hint_marker")"
+        touch "$hint_marker"
+    fi
     ensure_claude_json_symlink
     local pin="${CLAUDE_PIN_VERSION:-}"
     if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
@@ -244,7 +262,15 @@ docker_run() {
         fi
     done
 
-    # Add port mappings if requested
+    # Networking: use host networking if available (all ports accessible without -p)
+    if check_host_networking; then
+        local api_ip
+        api_ip="$(python3 -c "import socket; print(socket.getaddrinfo('api.anthropic.com',443,socket.AF_INET)[0][4][0])" 2>/dev/null)" || true
+        flags+=(--network host)
+        if [[ -n "$api_ip" ]]; then
+            flags+=(--add-host "api.anthropic.com:${api_ip}" --add-host "claude.ai:${api_ip}")
+        fi
+    fi
     flags+=("${PORT_FLAGS[@]+"${PORT_FLAGS[@]}"}")
 
     # Per-session /tmp/ — persists across resume, isolated between sessions

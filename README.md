@@ -30,6 +30,7 @@ Claude Code runs with full filesystem access. Docker gives you sandboxed session
 - **Sound notifications** — hear when Claude finishes a task
 - **Chrome browser control** — navigate, click, screenshot, read console from your Mac's Chrome via `--chrome`
 - **MCP server support** — stdio and HTTP MCPs work inside Docker, with Chromium pre-installed for Puppeteer/Playwright
+- **Auto host networking** — when Docker Desktop host networking is enabled, all container ports are automatically accessible on your Mac without `--port`
 - **Auto-update** — checks for new Claude Code versions on startup and rebuilds the image when one is available (skip with `--no-update`)
 - **Git and SSH** — all SSH keys mounted, GitHub auth forwarded via `GH_TOKEN`
 - **Per-session isolation** — each session gets its own `/tmp`, container name, and resume log
