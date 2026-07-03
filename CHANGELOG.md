@@ -60,4 +60,8 @@
 
 25. **Clipboard fix.** Claude Code's native clipboard detection on Linux requires `DISPLAY` to be set. Without it, the xclip shim was never found. Fixed by setting `DISPLAY=:0` in the container environment.
 
-26. **Auto host networking.** When Docker Desktop's host networking is enabled, clauded automatically uses `--network host` so all container ports are accessible from the Mac without `--port`. On first run without it enabled, a one-time tip explains how to turn it on. Anthropic endpoints are pinned to IPv4 via `--add-host` to avoid failures on VPNs that don't tunnel IPv6.
+26. **Auto host networking.** When Docker Desktop's host networking is enabled, clauded automatically uses `--network host` so all container ports are accessible from the Mac without `--port`. On first run without it enabled, a one-time tip explains how to turn it on.
+
+## 2026-07-03
+
+27. **Automatic IPv4 fallback.** On VPNs that advertise but can't route IPv6, host networking loses the connection to Anthropic (401 / certificate errors). When host networking is active, clauded checks IPv6 reachability and pins Anthropic endpoints to IPv4 only when needed. Override with `--force-ipv4` / `--no-force-ipv4`, or set `FORCE_IPV4` (`auto`/`true`/`false`) in `~/.clauded/config`.

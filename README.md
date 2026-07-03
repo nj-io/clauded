@@ -214,6 +214,27 @@ clauded firewall
 
 Whitelisted: Anthropic API, GitHub, npm, PyPI, Chrome bridge.
 
+## Troubleshooting
+
+### VPNs that don't route IPv6
+
+Some VPNs advertise IPv6 but can't route it. With host networking enabled, that breaks the container's connection to Anthropic — you'd see `401 Invalid authentication credentials` or a certificate error.
+
+clauded handles this automatically: it checks whether Anthropic is reachable over IPv6 and pins the endpoints to IPv4 only if it isn't.
+
+To override the auto-detection:
+
+```bash
+clauded --force-ipv4      # always pin to IPv4
+clauded --no-force-ipv4   # never pin
+```
+
+Or set it permanently in `~/.clauded/config`:
+
+```bash
+FORCE_IPV4="auto"    # auto (default) | true (always pin) | false (never)
+```
+
 ## Contributing
 
 Found a bug or have a feature request? [Open an issue](https://github.com/nj-io/clauded/issues).

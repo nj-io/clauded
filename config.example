@@ -27,3 +27,10 @@ GITCONFIG=""
 # Pin to a specific Claude Code version (same as --version flag)
 # Rebuilds the image if the current version doesn't match.
 # CLAUDE_PIN_VERSION="2.1.150"
+
+# IPv4 pinning for Anthropic endpoints (host networking only).
+# Some VPNs advertise IPv6 but can't route it, which breaks the connection.
+#   auto (default) — pin only when IPv6 is unreachable
+#   true           — always pin to IPv4
+#   false          — never pin
+# FORCE_IPV4="auto"

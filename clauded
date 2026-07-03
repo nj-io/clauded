@@ -105,6 +105,30 @@ check_host_networking() {
     return 1
 }
 
+# Returns 0 if Anthropic is reachable over IPv6 (or has no IPv6 in DNS),
+# 1 if an IPv6 address exists but can't be connected to. Some VPNs advertise
+# IPv6 they can't route, which breaks host networking — this detects that.
+ipv6_reachable() {
+    python3 - <<'PY' 2>/dev/null
+import socket, sys
+try:
+    infos = socket.getaddrinfo("api.anthropic.com", 443, socket.AF_INET6, socket.SOCK_STREAM)
+except socket.gaierror:
+    sys.exit(0)  # no IPv6 in DNS — nothing to break
+if not infos:
+    sys.exit(0)
+s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+s.settimeout(2)
+try:
+    s.connect(infos[0][4])
+    sys.exit(0)  # IPv6 works
+except Exception:
+    sys.exit(1)  # IPv6 advertised but unreachable
+finally:
+    s.close()
+PY
+}
+
 ensure_ready() {
     local hint_marker="$HOME/.clauded/.host-net-hint-shown"
     if ! check_host_networking && [[ ! -f "$hint_marker" ]]; then
@@ -264,11 +288,25 @@ docker_run() {
 
     # Networking: use host networking if available (all ports accessible without -p)
     if check_host_networking; then
-        local api_ip
-        api_ip="$(python3 -c "import socket; print(socket.getaddrinfo('api.anthropic.com',443,socket.AF_INET)[0][4][0])" 2>/dev/null)" || true
         flags+=(--network host)
-        if [[ -n "$api_ip" ]]; then
-            flags+=(--add-host "api.anthropic.com:${api_ip}" --add-host "claude.ai:${api_ip}")
+        # IPv4 pinning for VPNs that advertise but can't route IPv6, which
+        # otherwise breaks the container's connection to Anthropic. Precedence:
+        # --force-ipv4/--no-force-ipv4 flag > FORCE_IPV4 config > auto-detect.
+        local pin_ipv4=false
+        case "${FORCE_IPV4:-auto}" in
+            true)  pin_ipv4=true ;;
+            false) pin_ipv4=false ;;
+            *)     if ! ipv6_reachable; then
+                       pin_ipv4=true
+                       log "IPv6 unreachable — pinning Anthropic endpoints to IPv4 for this session."
+                   fi ;;
+        esac
+        if [[ "$pin_ipv4" == true ]]; then
+            local api_ip
+            api_ip="$(python3 -c "import socket; print(socket.getaddrinfo('api.anthropic.com',443,socket.AF_INET)[0][4][0])" 2>/dev/null)" || true
+            if [[ -n "$api_ip" ]]; then
+                flags+=(--add-host "api.anthropic.com:${api_ip}" --add-host "claude.ai:${api_ip}" --add-host "claude.com:${api_ip}")
+            fi
         fi
     fi
     flags+=("${PORT_FLAGS[@]+"${PORT_FLAGS[@]}"}")
@@ -437,6 +475,12 @@ else:
                 shift ;;
             --no-update)
                 SKIP_UPDATE="true"
+                shift ;;
+            --force-ipv4)
+                FORCE_IPV4="true"
+                shift ;;
+            --no-force-ipv4)
+                FORCE_IPV4="false"
                 shift ;;
             --version)
                 CLAUDE_PIN_VERSION="$2"
@@ -775,6 +819,8 @@ clauded: Claude Code in Docker
   clauded --agent <name> "prompt"              Run a Claude agent
   clauded --chrome                              Enable Chrome browser control
   clauded --no-update                           Skip auto-update check on startup
+  clauded --force-ipv4                          Force Anthropic endpoints to IPv4 (VPN/IPv6 fix)
+  clauded --no-force-ipv4                        Disable the IPv4 fallback
   clauded --version 2.1.150                    Pin to a specific Claude Code version
   clauded --port 4000                          Expose port 4000 to Mac
   clauded --port 4000-4010                     Expose port range
