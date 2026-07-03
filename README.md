@@ -25,7 +25,7 @@ Claude Code runs with full filesystem access. Docker gives you sandboxed session
 
 - **Parallel sessions** — run as many sessions as you want across different projects, simultaneously
 - **Resume by name or ID** — session names are tracked automatically, `clauded -r my-session` picks up where you left off
-- **Clipboard bridge** — `/copy` inside Docker copies to your Mac's clipboard
+- **Clipboard bridge** — `/copy` and copy-on-select both copy to your Mac's clipboard
 - **URL opening** — links clicked inside Docker open in your Mac browser
 - **Sound notifications** — hear when Claude finishes a task
 - **Chrome browser control** — navigate, click, screenshot, read console from your Mac's Chrome via `--chrome`
@@ -86,6 +86,7 @@ clauded                                    # Start in current directory
 clauded ~/dev/my-project                   # Start in a specific directory
 clauded -r <id-or-name>                    # Resume a session
 clauded --continue                         # Resume last session
+clauded --fork-session <id-or-name>        # Resume a copy, leaving the original untouched
 clauded --worktree                         # Start in a git worktree
 clauded --worktree my-feature              # Named worktree
 clauded --no-update                        # Start without checking for updates
@@ -106,6 +107,7 @@ Control your Mac's Chrome browser from inside Docker. Requires the [Claude in Ch
 clauded --port 4000                        # Expose port 4000 to Mac
 clauded --port 4000-4010                   # Expose port range
 clauded --ro ~/specs                       # Mount extra directory read-only
+clauded --mount ~/data:/data               # Mount extra directory read-write
 ```
 
 ### Agents
@@ -127,9 +129,9 @@ clauded shell                              # Bash into most recent session
 ### Services
 
 ```bash
-clauded sounds start|stop|status|install   # Sound notifications (port 21563)
-clauded clipboard start|stop|status|install # Clipboard bridge (port 21564)
-clauded chrome-mcp start|stop|restart      # Chrome MCP bridge (port 21565)
+clauded sounds start|stop|status|install|uninstall     # Sound notifications (port 21563)
+clauded clipboard start|stop|status|install|uninstall  # Clipboard bridge (port 21564)
+clauded chrome-mcp start|stop|restart|status           # Chrome MCP bridge (port 21565)
 ```
 
 ### Build & Maintenance
@@ -156,6 +158,15 @@ SSH_CONFIG="$SCRIPT_DIR/ssh-config-docker"
 
 # Custom gitconfig for Docker (leave empty to use ~/.gitconfig)
 GITCONFIG="$SCRIPT_DIR/gitconfig-docker"
+
+# Skip the auto-update check on startup (same as --no-update)
+# SKIP_UPDATE="true"
+
+# Pin Claude Code to a specific version (same as --version)
+# CLAUDE_PIN_VERSION="2.1.150"
+
+# Force Anthropic endpoints to IPv4 under host networking (auto | true | false)
+# FORCE_IPV4="auto"
 ```
 
 ### SSH & Git
