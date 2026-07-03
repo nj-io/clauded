@@ -15,7 +15,6 @@ IMAGE_NAME="claude-code:latest"
 PREFIX="claude"
 SOUND_PORT="${CLAUDE_SOUND_PORT:-21563}"
 CLIPBOARD_PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
-CHROME_MCP_PORT="${CLAUDE_CHROME_MCP_PORT:-21565}"
 GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
 
 # Migrate from old .claude-docker directory if it exists
@@ -180,11 +179,6 @@ ensure_ready() {
     if ! curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
         nohup python3 "$SCRIPT_DIR/clipboard-server.py" --port "$CLIPBOARD_PORT" >/dev/null 2>&1 &
     fi
-    if [[ "${USE_CHROME:-}" == "true" ]] && ! curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
-        log "Starting Chrome MCP bridge..."
-        nohup python3 "$SCRIPT_DIR/chrome-mcp-bridge.py" --port "$CHROME_MCP_PORT" >/dev/null 2>&1 &
-        sleep 2
-    fi
 }
 
 resolve_host_path() {
@@ -239,12 +233,8 @@ docker_run() {
     # Symlink .claude.json (skip if already exists to avoid disrupting running sessions)
     [[ ! -L "$HOME/.clauded/home/.claude.json" ]] && \
         ln -sf "$HOME/.claude/.claude.json" "$HOME/.clauded/home/.claude.json"
+    # Clear any stale Chrome MCP bridge config left by older versions
     rm -f "$HOME/.clauded/home/.mcp.json"
-    # Inject Chrome MCP bridge config only when --chrome is passed
-    if [[ "${USE_CHROME:-}" == "true" ]] && curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
-        echo '{"mcpServers":{"claude-in-chrome":{"type":"http","url":"http://host.docker.internal:'"${CHROME_MCP_PORT}"'/mcp"}}}' \
-            > "$HOME/.clauded/home/.mcp.json"
-    fi
     # If a container with this name exists, make the name unique
     # (happens with /branch — same session UUID, needs separate container)
     if docker ps -a -q --filter "name=^${name}$" 2>/dev/null | grep -q .; then
@@ -469,9 +459,6 @@ else:
                 fi ;;
             --continue)
                 CLAUDE_EXTRA_FLAGS="--continue"
-                shift ;;
-            --chrome)
-                USE_CHROME="true"
                 shift ;;
             --no-update)
                 SKIP_UPDATE="true"
@@ -731,42 +718,6 @@ PLIST
     esac
 }
 
-cmd_chrome_mcp() {
-    case "${1:-status}" in
-        start)
-            if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
-                ok "Chrome MCP bridge already running."
-            else
-                log "Starting Chrome MCP bridge on port ${CHROME_MCP_PORT}..."
-                nohup python3 "$SCRIPT_DIR/chrome-mcp-bridge.py" --port "$CHROME_MCP_PORT" >/dev/null 2>&1 &
-                sleep 2
-                if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
-                    ok "Chrome MCP bridge started."
-                else
-                    err "Failed to start Chrome MCP bridge."
-                fi
-            fi ;;
-        stop)
-            pkill -f "chrome-mcp-bridge.py" 2>/dev/null && ok "Chrome MCP bridge stopped." || err "Not running." ;;
-        restart)
-            pkill -f "chrome-mcp-bridge.py" 2>/dev/null
-            sleep 1
-            nohup python3 "$SCRIPT_DIR/chrome-mcp-bridge.py" --port "$CHROME_MCP_PORT" >/dev/null 2>&1 &
-            sleep 2
-            if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
-                ok "Chrome MCP bridge restarted."
-            else
-                err "Failed to restart Chrome MCP bridge."
-            fi ;;
-        status)
-            if curl -sf "http://localhost:${CHROME_MCP_PORT}/" >/dev/null 2>&1; then
-                ok "Chrome MCP bridge running on port ${CHROME_MCP_PORT}."
-            else
-                echo -e "${YELLOW}Chrome MCP bridge not running.${NC} Run: clauded chrome-mcp start"
-            fi ;;
-    esac
-}
-
 cmd_setup() {
     log "=== Claude Code Docker Setup ==="
     echo ""
@@ -802,7 +753,6 @@ case "${1:-__default__}" in
     firewall)     shift; cmd_firewall "$@" ;;
     sounds)       shift; cmd_sounds "$@" ;;
     clipboard)    shift; cmd_clipboard "$@" ;;
-    chrome-mcp)   shift; cmd_chrome_mcp "$@" ;;
     setup)        cmd_setup ;;
     shell)        shift; cmd_shell "$@" ;;
     run)          shift; cmd_run "$@" ;;
@@ -817,7 +767,6 @@ clauded: Claude Code in Docker
   clauded --worktree                           Start in a git worktree
   clauded --worktree <name>                    Named worktree
   clauded --agent <name> "prompt"              Run a Claude agent
-  clauded --chrome                              Enable Chrome browser control
   clauded --no-update                           Skip auto-update check on startup
   clauded --force-ipv4                          Force Anthropic endpoints to IPv4 (VPN/IPv6 fix)
   clauded --no-force-ipv4                        Disable the IPv4 fallback
@@ -841,7 +790,6 @@ clauded: Claude Code in Docker
   clauded firewall                             Lock down network access
   clauded sounds start|install                 Sound server for notifications
   clauded clipboard start|install              Clipboard server for /copy
-  clauded chrome-mcp start|stop|restart       Chrome MCP bridge for browser control
 
 Each invocation gets an auto-generated name. Run as many as you want.
 HELP

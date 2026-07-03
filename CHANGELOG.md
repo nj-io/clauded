@@ -65,3 +65,5 @@
 ## 2026-07-03
 
 27. **Automatic IPv4 fallback.** On VPNs that advertise but can't route IPv6, host networking loses the connection to Anthropic (401 / certificate errors). When host networking is active, clauded checks IPv6 reachability and pins Anthropic endpoints to IPv4 only when needed. Override with `--force-ipv4` / `--no-force-ipv4`, or set `FORCE_IPV4` (`auto`/`true`/`false`) in `~/.clauded/config`.
+
+28. **Removed the Chrome MCP bridge.** Claude in Chrome pairs over a cloud relay, not localhost, so containers reach it directly — the Mac-side `chrome-mcp-bridge.py` proxy (port 21565) was never necessary. Deleted the bridge, the `--chrome` flag, the `chrome-mcp` subcommand, and the `.mcp.json` injection. Claude in Chrome now works in any session with no setup; just install the extension. (`clauded --chrome` still works — it falls through to Claude Code's own native flag.)

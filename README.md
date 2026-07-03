@@ -28,7 +28,7 @@ Claude Code runs with full filesystem access. Docker gives you sandboxed session
 - **Clipboard bridge** — `/copy` and copy-on-select both copy to your Mac's clipboard
 - **URL opening** — links clicked inside Docker open in your Mac browser
 - **Sound notifications** — hear when Claude finishes a task
-- **Chrome browser control** — navigate, click, screenshot, read console from your Mac's Chrome via `--chrome`
+- **Chrome browser control** — navigate, click, screenshot, and read the console in your Mac's Chrome, built in — no flag needed
 - **MCP server support** — stdio and HTTP MCPs work inside Docker, with Chromium pre-installed for Puppeteer/Playwright
 - **Auto host networking** — when Docker Desktop host networking is enabled, all container ports are automatically accessible on your Mac without `--port`
 - **Auto-update** — checks for new Claude Code versions on startup and rebuilds the image when one is available (skip with `--no-update`)
@@ -95,11 +95,7 @@ clauded --version 2.1.150                  # Pin to a specific Claude Code versi
 
 ### Chrome Browser Control
 
-```bash
-clauded --chrome                           # Enable Chrome browser control
-```
-
-Control your Mac's Chrome browser from inside Docker. Requires the [Claude in Chrome extension](https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn). Uses `mcp__claude-in-chrome__*` tools directly.
+Claude in Chrome works out of the box. Install the [Claude in Chrome extension](https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn) and Claude can navigate, click, screenshot, and read the console in your Mac's Chrome from inside the container — no flag or setup required. The `mcp__claude-in-chrome__*` tools are available automatically.
 
 ### Ports & Mounts
 
@@ -131,7 +127,6 @@ clauded shell                              # Bash into most recent session
 ```bash
 clauded sounds start|stop|status|install|uninstall     # Sound notifications (port 21563)
 clauded clipboard start|stop|status|install|uninstall  # Clipboard bridge (port 21564)
-clauded chrome-mcp start|stop|restart|status           # Chrome MCP bridge (port 21565)
 ```
 
 ### Build & Maintenance
@@ -190,7 +185,7 @@ MCP servers configured in `~/.claude.json` work automatically if their dependenc
 
 **HTTP/SSE MCPs** (Asana, GitHub, Linear, Slack, Supabase, etc.) work out of the box.
 
-**Stdio MCPs** that need Mac resources (Chrome extension, iMessage) use the Chrome MCP bridge via `clauded --chrome`.
+**Claude in Chrome** is built in and needs no bridge — just install the extension (see [Chrome Browser Control](#chrome-browser-control)).
 
 To mount additional MCP source directories, add them to `EXTRA_MOUNTS` in your config.
 
@@ -223,7 +218,7 @@ Optionally restrict outbound traffic to only essential services:
 clauded firewall
 ```
 
-Whitelisted: Anthropic API, GitHub, npm, PyPI, Chrome bridge.
+Whitelisted: Anthropic API, GitHub, npm, PyPI, Claude-in-Chrome relay.
 
 ## Troubleshooting
 
