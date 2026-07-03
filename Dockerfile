@@ -44,7 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+# @playwright/mcp defaults to the Chrome channel (looked up at /opt/google/chrome/chrome).
+# Point that path at the bundled Chromium so the MCP works with no config changes.
+RUN mkdir -p /opt/google/chrome && ln -sf /usr/bin/chromium /opt/google/chrome/chrome
 
 # Match host UID/GID so mounted files have correct ownership
 ARG USER_ID=501
