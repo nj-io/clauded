@@ -11,7 +11,7 @@ if [ -z "$URL" ]; then
 fi
 
 if [ -f "/.dockerenv" ] || [ "${CLAUDE_DOCKER:-}" = "1" ]; then
-    curl -sf -X POST --data-binary "$URL" "http://host.docker.internal:${PORT}/open" >/dev/null 2>&1
+    curl -sf -X POST -H "X-Clauded-Token: ${CLAUDED_BRIDGE_TOKEN:-}" --data-binary "$URL" "http://host.docker.internal:${PORT}/open" >/dev/null 2>&1
 elif command -v /usr/bin/xdg-open &>/dev/null; then
     /usr/bin/xdg-open "$URL"
 elif command -v open &>/dev/null; then

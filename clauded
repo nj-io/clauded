@@ -15,6 +15,7 @@ IMAGE_NAME="claude-code:latest"
 PREFIX="claude"
 SOUND_PORT="${CLAUDE_SOUND_PORT:-21563}"
 CLIPBOARD_PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
+BRIDGE_TOKEN_FILE="$HOME/.clauded/bridge-token"
 GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
 
 # Migrate from old .claude-docker directory if it exists
@@ -96,6 +97,15 @@ ensure_claude_json_symlink() {
     fi
 }
 
+# Shared secret for the clipboard/sound bridge, so only this Mac's containers
+# (not anything else that can reach the ports) can use it. Generated once.
+ensure_bridge_token() {
+    if [[ ! -s "$BRIDGE_TOKEN_FILE" ]]; then
+        mkdir -p "$(dirname "$BRIDGE_TOKEN_FILE")"
+        ( umask 077; python3 -c "import secrets; print(secrets.token_hex(32))" > "$BRIDGE_TOKEN_FILE" )
+    fi
+}
+
 check_host_networking() {
     local settings="$HOME/Library/Group Containers/group.com.docker/settings-store.json"
     if [[ -f "$settings" ]] && python3 -c "import json; exit(0 if json.load(open('$settings')).get('HostNetworkingEnabled') else 1)" 2>/dev/null; then
@@ -173,10 +183,11 @@ ensure_ready() {
         docker ps --filter "name=${PREFIX}-" --format "  {{.Names}}\t{{.RunningFor}}" 2>/dev/null
         echo -e "${YELLOW}[claude]${NC} Consider stopping idle sessions: clauded stop-all"
     fi
-    if ! curl -sf "http://localhost:${SOUND_PORT}/" >/dev/null 2>&1; then
+    ensure_bridge_token
+    if ! curl -sf "http://localhost:${SOUND_PORT}/health" >/dev/null 2>&1; then
         nohup python3 "$SCRIPT_DIR/sound-server.py" --port "$SOUND_PORT" >/dev/null 2>&1 &
     fi
-    if ! curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+    if ! curl -sf "http://localhost:${CLIPBOARD_PORT}/health" >/dev/null 2>&1; then
         nohup python3 "$SCRIPT_DIR/clipboard-server.py" --port "$CLIPBOARD_PORT" >/dev/null 2>&1 &
     fi
 }
@@ -317,6 +328,12 @@ docker_run() {
     gh_token="$(gh auth token 2>/dev/null)" || true
     if [[ -n "$gh_token" ]]; then
         flags+=(-e "GH_TOKEN=${gh_token}")
+    fi
+
+    # Shared secret so the clipboard/sound bridge only serves this Mac's containers
+    ensure_bridge_token
+    if [[ -s "$BRIDGE_TOKEN_FILE" ]]; then
+        flags+=(-e "CLAUDED_BRIDGE_TOKEN=$(cat "$BRIDGE_TOKEN_FILE")")
     fi
 
     # Use script to capture terminal output while preserving interactive mode
@@ -608,6 +625,8 @@ cmd_build() {
     if [[ -z "$ver" ]]; then
         ver="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || ver="latest"
     fi
+    local old_image
+    old_image="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
     log "Building image (${ver})..."
     docker build \
         --build-arg CLAUDE_VERSION="$ver" \
@@ -615,9 +634,15 @@ cmd_build() {
         --build-arg GROUP_ID="$(id -g)" \
         --build-arg HOME_DIR="$HOME" \
         -t "$IMAGE_NAME" "$SCRIPT_DIR"
-    # Clean up old images and build cache left behind by previous builds
-    docker image prune -f >/dev/null 2>&1
-    docker builder prune -f >/dev/null 2>&1
+    # Remove only clauded's own previous image if this build replaced it.
+    # (Deliberately not `docker system/builder prune` — that would wipe other
+    # projects' images and the shared build cache.)
+    if [[ -n "$old_image" ]]; then
+        local new_image
+        new_image="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
+        [[ -n "$new_image" && "$old_image" != "$new_image" ]] && \
+            docker rmi "$old_image" >/dev/null 2>&1 || true
+    fi
     ok "Image ready ($ver)."
 }
 
@@ -633,15 +658,16 @@ cmd_firewall() {
 }
 
 cmd_sounds() {
+    ensure_bridge_token
     case "${1:-status}" in
         start)
-            if curl -sf "http://localhost:${SOUND_PORT}/?sound=Pop" >/dev/null 2>&1; then
+            if curl -sf "http://localhost:${SOUND_PORT}/health" >/dev/null 2>&1; then
                 ok "Sound server already running."
             else
                 log "Starting sound server on port ${SOUND_PORT}..."
                 nohup python3 "$SCRIPT_DIR/sound-server.py" --port "$SOUND_PORT" >/dev/null 2>&1 &
                 sleep 0.5
-                if curl -sf "http://localhost:${SOUND_PORT}/?sound=Pop" >/dev/null 2>&1; then
+                if curl -sf "http://localhost:${SOUND_PORT}/health" >/dev/null 2>&1; then
                     ok "Sound server started."
                 else
                     err "Failed to start sound server."
@@ -649,6 +675,8 @@ cmd_sounds() {
             fi ;;
         stop)
             pkill -f "sound-server.py" 2>/dev/null && ok "Sound server stopped." || err "Not running." ;;
+        restart)
+            pkill -f "sound-server.py" 2>/dev/null; sleep 0.3; cmd_sounds start ;;
         install)
             cat > ~/Library/LaunchAgents/com.claude.sound-server.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -667,7 +695,7 @@ PLIST
             rm -f ~/Library/LaunchAgents/com.claude.sound-server.plist
             ok "Sound server uninstalled." ;;
         status)
-            if curl -sf "http://localhost:${SOUND_PORT}/" >/dev/null 2>&1; then
+            if curl -sf "http://localhost:${SOUND_PORT}/health" >/dev/null 2>&1; then
                 ok "Sound server running on port ${SOUND_PORT}."
             else
                 echo -e "${YELLOW}Sound server not running.${NC} Run: clauded sounds start"
@@ -676,15 +704,16 @@ PLIST
 }
 
 cmd_clipboard() {
+    ensure_bridge_token
     case "${1:-status}" in
         start)
-            if curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+            if curl -sf "http://localhost:${CLIPBOARD_PORT}/health" >/dev/null 2>&1; then
                 ok "Clipboard server already running."
             else
                 log "Starting clipboard server on port ${CLIPBOARD_PORT}..."
                 nohup python3 "$SCRIPT_DIR/clipboard-server.py" --port "$CLIPBOARD_PORT" >/dev/null 2>&1 &
                 sleep 0.5
-                if curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+                if curl -sf "http://localhost:${CLIPBOARD_PORT}/health" >/dev/null 2>&1; then
                     ok "Clipboard server started."
                 else
                     err "Failed to start clipboard server."
@@ -692,6 +721,8 @@ cmd_clipboard() {
             fi ;;
         stop)
             pkill -f "clipboard-server.py" 2>/dev/null && ok "Clipboard server stopped." || err "Not running." ;;
+        restart)
+            pkill -f "clipboard-server.py" 2>/dev/null; sleep 0.3; cmd_clipboard start ;;
         install)
             cat > ~/Library/LaunchAgents/com.claude.clipboard-server.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -710,7 +741,7 @@ PLIST
             rm -f ~/Library/LaunchAgents/com.claude.clipboard-server.plist
             ok "Clipboard server uninstalled." ;;
         status)
-            if curl -sf "http://localhost:${CLIPBOARD_PORT}/paste" >/dev/null 2>&1; then
+            if curl -sf "http://localhost:${CLIPBOARD_PORT}/health" >/dev/null 2>&1; then
                 ok "Clipboard server running on port ${CLIPBOARD_PORT}."
             else
                 echo -e "${YELLOW}Clipboard server not running.${NC} Run: clauded clipboard start"

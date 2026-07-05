@@ -19,29 +19,26 @@
 
 ## Why
 
-Claude Code runs with full filesystem access. Docker gives you sandboxed sessions without sacrificing the features you rely on: clipboard, browser links, git, MCP servers, and sound notifications all bridge to your Mac transparently.
+Running Claude Code with full access to your Mac is risky. Claude's auto mode guards it with a permission classifier — a soft boundary that costs a model call per risky action. clauded gives you a hard one: a Docker sandbox. Skip permission prompts safely and cheaply, while clipboard, sound, Claude in Chrome, git, and MCP servers all bridge to your Mac.
 
 ## Features
 
-- **Parallel sessions** — run as many sessions as you want across different projects, simultaneously
-- **Resume by name or ID** — session names are tracked automatically, `clauded -r my-session` picks up where you left off
-- **Clipboard bridge** — `/copy` and copy-on-select both copy to your Mac's clipboard
-- **URL opening** — links clicked inside Docker open in your Mac browser
-- **Sound notifications** — hear when Claude finishes a task
-- **Chrome browser control** — navigate, click, screenshot, and read the console in your Mac's Chrome, built in — no flag needed
-- **MCP server support** — stdio and HTTP MCPs work inside Docker, with Chromium pre-installed for Puppeteer/Playwright
-- **Auto host networking** — when Docker Desktop host networking is enabled, all container ports are automatically accessible on your Mac without `--port`
-- **Auto-update** — checks for new Claude Code versions on startup and rebuilds the image when one is available (skip with `--no-update`)
-- **Git and SSH** — all SSH keys mounted, GitHub auth forwarded via `GH_TOKEN`
-- **Per-session isolation** — each session gets its own `/tmp`, container name, and resume log
-- **Memory warnings** — alerts when running containers exceed 3GB total
-- **Image cleanup** — old Docker images and build cache pruned automatically after each build
-- **Configurable** — project directory, extra mounts, SSH/git overrides all in `~/.clauded/config`
+- **Parallel sessions** — run as many as you want across projects at once
+- **Resume by name or ID** — `clauded -r my-session` picks up where you left off
+- **Claude in Chrome** — drive your Mac's Chrome from the container, built in, no setup
+- **Mac bridges** — `/copy` and copy-on-select, clicked links, and sound notifications all reach your Mac
+- **MCP servers** — stdio and HTTP MCPs work inside Docker; Chromium bundled for Puppeteer/Playwright
+- **Auto host networking** — when enabled in Docker Desktop, container ports are reachable on your Mac without `--port`
+- **Works behind VPNs** — auto-detects broken IPv6 and pins Anthropic endpoints to IPv4 so sessions keep connecting
+- **Auto-update** — pulls new Claude Code versions on startup; skip with `--no-update`
+- **Git and SSH** — SSH keys mounted, GitHub auth forwarded via `GH_TOKEN`
+- **Configurable** — project directory, extra mounts, SSH/git overrides in `~/.clauded/config`
 
 ## Prerequisites
 
 - macOS (Apple Silicon or Intel)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (must be running)
+- Xcode Command Line Tools — provides `git`, `curl`, and `python3` (`xcode-select --install`)
 - A Claude account (Pro, Max, Teams, or Enterprise)
 
 ## Quick Start
@@ -125,8 +122,8 @@ clauded shell                              # Bash into most recent session
 ### Services
 
 ```bash
-clauded sounds start|stop|status|install|uninstall     # Sound notifications (port 21563)
-clauded clipboard start|stop|status|install|uninstall  # Clipboard bridge (port 21564)
+clauded sounds start|stop|restart|status|install|uninstall     # Sound notifications (port 21563)
+clauded clipboard start|stop|restart|status|install|uninstall  # Clipboard bridge (port 21564)
 ```
 
 ### Build & Maintenance

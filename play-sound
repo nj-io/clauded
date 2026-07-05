@@ -13,7 +13,7 @@ PORT="${CLAUDE_SOUND_PORT:-21563}"
 
 if [ -f "/.dockerenv" ] || [ "${CLAUDE_DOCKER:-}" = "1" ]; then
     # Inside Docker: notify the host sound server via HTTP
-    curl -sf "http://host.docker.internal:${PORT}/?sound=${SOUND}" >/dev/null 2>&1 || true
+    curl -sf -H "X-Clauded-Token: ${CLAUDED_BRIDGE_TOKEN:-}" "http://host.docker.internal:${PORT}/?sound=${SOUND}" >/dev/null 2>&1 || true
 elif [ "$(uname)" = "Darwin" ]; then
     # Native macOS: play directly
     SOUND_FILE="/System/Library/Sounds/${SOUND}.aiff"

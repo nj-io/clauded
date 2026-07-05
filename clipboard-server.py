@@ -6,24 +6,51 @@ for Docker containers.
 Start:  python3 clipboard-server.py
         python3 clipboard-server.py --port 21564
 
+Requests must carry the shared secret from ~/.clauded/bridge-token in an
+X-Clauded-Token header (clauded injects it into containers). This stops anything
+else that can reach the port — other devices on your LAN, a Tailnet — from
+reading your clipboard or opening URLs on your Mac. GET /health needs no token.
+
 Usage from container:
-        echo "hello" | curl -X POST -d @- http://host.docker.internal:21564/copy
-        curl http://host.docker.internal:21564/paste
-        curl -X POST -d "https://example.com" http://host.docker.internal:21564/open
+        echo "hello" | curl -X POST -H "X-Clauded-Token: $CLAUDED_BRIDGE_TOKEN" -d @- http://host.docker.internal:21564/copy
+        curl -H "X-Clauded-Token: $CLAUDED_BRIDGE_TOKEN" http://host.docker.internal:21564/paste
+        curl -X POST -H "X-Clauded-Token: $CLAUDED_BRIDGE_TOKEN" -d "https://example.com" http://host.docker.internal:21564/open
 """
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 import subprocess
-import shlex
+import secrets
 import os
 import sys
 
 PORT = int(os.environ.get("CLAUDE_CLIPBOARD_PORT", 21564))
 
+TOKEN_FILE = os.path.expanduser("~/.clauded/bridge-token")
+
+
+def _load_token():
+    try:
+        with open(TOKEN_FILE) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+TOKEN = _load_token()
+
 
 class ClipboardHandler(BaseHTTPRequestHandler):
+    def _authed(self):
+        if not TOKEN:
+            return True  # no token configured yet — clauded creates it on first run
+        return secrets.compare_digest(self.headers.get("X-Clauded-Token", ""), TOKEN)
+
     def do_POST(self):
+        if not self._authed():
+            self.send_response(403)
+            self.end_headers()
+            return
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else b""
         path = urlparse(self.path).path
@@ -55,6 +82,14 @@ class ClipboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if urlparse(self.path).path == "/health":
+            self.send_response(200)
+            self.end_headers()
+            return
+        if not self._authed():
+            self.send_response(403)
+            self.end_headers()
+            return
         try:
             result = subprocess.run(
                 ["pbpaste"],
@@ -80,7 +115,8 @@ def main():
 
     server = HTTPServer(("0.0.0.0", port), ClipboardHandler)
     print(f"Clipboard server listening on port {port}")
-    print(f"Test: echo 'hello' | curl -X POST -d @- http://localhost:{port}/copy")
+    if not TOKEN:
+        print("Warning: no ~/.clauded/bridge-token found — running without auth.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

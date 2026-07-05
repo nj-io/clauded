@@ -14,8 +14,9 @@ for arg in "$@"; do
     fi
 done
 
+TOKEN_HEADER="X-Clauded-Token: ${CLAUDED_BRIDGE_TOKEN:-}"
 if $paste; then
-    curl -sf "http://${HOST}:${PORT}/paste" 2>/dev/null
+    curl -sf -H "$TOKEN_HEADER" "http://${HOST}:${PORT}/paste" 2>/dev/null
 else
-    curl -sf -X POST --data-binary @- "http://${HOST}:${PORT}/copy" >/dev/null 2>&1
+    curl -sf -X POST -H "$TOKEN_HEADER" --data-binary @- "http://${HOST}:${PORT}/copy" >/dev/null 2>&1
 fi

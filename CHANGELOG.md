@@ -69,3 +69,13 @@
 28. **Removed the Chrome MCP bridge.** Claude in Chrome pairs over a cloud relay, not localhost, so containers reach it directly — the Mac-side `chrome-mcp-bridge.py` proxy (port 21565) was never necessary. Deleted the bridge, the `--chrome` flag, the `chrome-mcp` subcommand, and the `.mcp.json` injection. Claude in Chrome now works in any session with no setup; just install the extension. (`clauded --chrome` still works — it falls through to Claude Code's own native flag.)
 
 29. **Fixed Playwright MCP.** The `@playwright/mcp` server launches the Chrome channel (looked up at `/opt/google/chrome/chrome`), which isn't in the image, so browser actions failed. The Dockerfile now symlinks that path to the bundled Chromium, so the stock config works with no changes. Removed the `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var, which `@playwright/mcp` ignores.
+
+## 2026-07-05
+
+30. **Authenticated the clipboard/sound bridge.** The host servers listened on `0.0.0.0` with no auth, so anything that could reach the ports (LAN, Tailnet) could read/overwrite your clipboard or open URLs on your Mac. They now require a per-machine secret (`~/.clauded/bridge-token`) that clauded injects into containers; an unauthenticated `GET /health` is used for liveness. Old sessions need one `clauded clipboard restart` / `clauded sounds restart` to pick up the token.
+
+31. **Scoped image cleanup.** `clauded build` no longer runs `docker image prune` / `docker builder prune` system-wide (which wiped other projects' images and the shared build cache). It now removes only clauded's own previous image.
+
+32. **Clearer prerequisites.** `install.sh` now checks for `python3` and `curl` (macOS lacks them until the Xcode Command Line Tools are installed) and the README lists them.
+
+33. **Removed unused `docker-compose.yml` and `.env.example`.** They described an API-key/`/home/claude` setup the tool doesn't use (it uses OAuth login and mirrors `$HOME`), which was misleading.

@@ -24,9 +24,18 @@ if ! docker info &>/dev/null; then
 fi
 
 if ! command -v git &>/dev/null; then
-    err "git not found."
+    err "git not found. Install the Xcode Command Line Tools: xcode-select --install"
     exit 1
 fi
+
+# clauded relies on python3 (bridges, session tracking) and curl (health checks).
+# macOS ships neither until the Command Line Tools are installed.
+for dep in python3 curl; do
+    if ! command -v "$dep" &>/dev/null; then
+        err "$dep not found. Install the Xcode Command Line Tools: xcode-select --install"
+        exit 1
+    fi
+done
 
 # Clone or update
 if [[ -d "$INSTALL_DIR" ]]; then

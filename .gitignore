@@ -14,3 +14,7 @@ ssh-config-docker
 
 # Docker
 docker-compose.override.yml
+
+# Python
+__pycache__/
+*.pyc

@@ -7,7 +7,7 @@
 PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
 
 if [ -f "/.dockerenv" ] || [ "${CLAUDE_DOCKER:-}" = "1" ]; then
-    curl -sf "http://host.docker.internal:${PORT}/paste" 2>/dev/null
+    curl -sf -H "X-Clauded-Token: ${CLAUDED_BRIDGE_TOKEN:-}" "http://host.docker.internal:${PORT}/paste" 2>/dev/null
 elif command -v /usr/bin/pbpaste &>/dev/null; then
     /usr/bin/pbpaste
 fi
