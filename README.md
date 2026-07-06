@@ -30,7 +30,7 @@ Running Claude Code with full access to your Mac is risky. Claude's auto mode gu
 - **MCP servers** — stdio and HTTP MCPs work inside Docker; Chromium bundled for Puppeteer/Playwright
 - **Auto host networking** — when enabled in Docker Desktop, container ports are reachable on your Mac without `--port`
 - **Works behind VPNs** — auto-detects broken IPv6 and pins Anthropic endpoints to IPv4 so sessions keep connecting
-- **Auto-update** — pulls new Claude Code versions on startup; skip with `--no-update`
+- **Versioning** — auto-updates Claude Code on startup; pin an exact version with `--version` or freeze updates with `--no-update`
 - **Git and SSH** — SSH keys mounted, GitHub auth forwarded via `GH_TOKEN`
 - **Configurable** — project directory, extra mounts, SSH/git overrides in `~/.clauded/config`
 
