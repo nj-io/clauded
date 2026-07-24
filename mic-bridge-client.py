@@ -78,17 +78,31 @@ def stream_once():
         sock.close()
 
 
+MIN_RETRY = 0.5
+
+
 def main():
     if not TOKEN:
         return
+    backoff = MIN_RETRY
     while True:
+        if not source_running():
+            backoff = MIN_RETRY
+            time.sleep(0.2)
+            continue
+        start = time.monotonic()
         try:
-            if source_running():
-                stream_once()
-            else:
-                time.sleep(0.2)
+            stream_once()
         except Exception:
-            time.sleep(0.5)
+            pass
+        # If the attempt ended almost immediately (server refused — e.g. a
+        # denied/cooled-down consent, or sox missing on the Mac), back off so
+        # we neither hammer the server nor spin the CPU. A real stream resets it.
+        if time.monotonic() - start < 0.5:
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 5.0)
+        else:
+            backoff = MIN_RETRY
 
 
 if __name__ == "__main__":

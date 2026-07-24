@@ -98,16 +98,11 @@ Claude in Chrome works out of the box. Install the [Claude in Chrome extension](
 
 ### Voice input
 
-Claude Code's voice mode works inside the container. A container-local PulseAudio exposes a source that Claude Code records from, and your Mac's microphone is streamed into it on demand — only while a recording is active. It's on by default; you need `sox` on your Mac (`brew install sox`).
+Claude Code's voice mode works inside the container. A container-local PulseAudio exposes a source that Claude Code records from, and your Mac's microphone is streamed into it while you're recording. It's on by default and needs `sox` on your Mac (`brew install sox`).
 
-Because the container and any code running in it share one trust domain, consent is anchored on the host, where in-container code can't reach it:
+The first time each session records, macOS asks you to approve microphone access for it — denied by default, and approval is then remembered for that session (set `MIC_CONSENT="always"` in `~/.clauded/config` to be asked before every recording). macOS shows its microphone indicator whenever a capture is running, each capture is logged to `~/.clauded/mic.log`, and access requires the per-machine token in `~/.clauded/bridge-token` that clauded gives its containers.
 
-- **Per-session approval** — the first recording of each session opens a macOS dialog naming the session. Denied by default; it times out to denied. Approval is cached for that session (set `MIC_CONSENT="always"` to be asked before every recording).
-- **On-demand capture** — the mic is live only while you're actually dictating; macOS shows its microphone indicator the whole time.
-- **Token-gated** — the mic bridge only serves this Mac's containers (shared secret in `~/.clauded/bridge-token`).
-- **Audited, never stored** — every capture is logged to `~/.clauded/mic.log`; no audio is written to disk.
-
-Disable it with `VOICE="false"` in `~/.clauded/config`, or `--no-voice` for a single session.
+Turn it off with `VOICE="false"` in `~/.clauded/config`, or `--no-voice` for one session. Manage the host bridge with `clauded voice start|stop|status`.
 
 ### Ports & Mounts
 
