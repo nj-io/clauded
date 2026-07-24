@@ -22,6 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tree \
     ca-certificates \
     lsof \
+    # Voice mode: SoX records through a container-local PulseAudio whose mic
+    # is bridged from the Mac (see mic-server.py / entrypoint.sh).
+    sox \
+    libsox-fmt-pulse \
+    pulseaudio-utils \
+    pulseaudio \
     # Chromium and dependencies for Puppeteer/Playwright MCP servers
     chromium \
     fonts-liberation \
@@ -65,8 +71,10 @@ COPY pbpaste /usr/local/bin/pbpaste
 COPY xclip /usr/local/bin/xclip
 COPY xsel /usr/local/bin/xsel
 COPY xdg-open /usr/local/bin/xdg-open
+# Voice: on-demand mic bridge client (feeds the container-local PulseAudio)
+COPY mic-bridge-client.py /usr/local/bin/mic-bridge-client.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/play-sound /usr/local/bin/pbcopy /usr/local/bin/pbpaste /usr/local/bin/xclip /usr/local/bin/xsel /usr/local/bin/xdg-open /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/play-sound /usr/local/bin/pbcopy /usr/local/bin/pbpaste /usr/local/bin/xclip /usr/local/bin/xsel /usr/local/bin/xdg-open /usr/local/bin/mic-bridge-client.py /usr/local/bin/entrypoint.sh
 
 # Optional firewall hardening
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh

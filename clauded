@@ -15,6 +15,7 @@ IMAGE_NAME="claude-code:latest"
 PREFIX="claude"
 SOUND_PORT="${CLAUDE_SOUND_PORT:-21563}"
 CLIPBOARD_PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
+MIC_PORT="${CLAUDE_MIC_PORT:-21566}"
 BRIDGE_TOKEN_FILE="$HOME/.clauded/bridge-token"
 GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
 
@@ -106,6 +107,10 @@ ensure_bridge_token() {
     fi
 }
 
+# Voice mode (mic bridge) is on by default; disable with VOICE="false" in config
+# or the --no-voice flag for a single session.
+voice_enabled() { [[ "${VOICE:-true}" != "false" && "${NO_VOICE:-}" != "1" ]]; }
+
 check_host_networking() {
     local settings="$HOME/Library/Group Containers/group.com.docker/settings-store.json"
     if [[ -f "$settings" ]] && python3 -c "import json; exit(0 if json.load(open('$settings')).get('HostNetworkingEnabled') else 1)" 2>/dev/null; then
@@ -189,6 +194,10 @@ ensure_ready() {
     fi
     if ! curl -sf "http://localhost:${CLIPBOARD_PORT}/health" >/dev/null 2>&1; then
         nohup python3 "$SCRIPT_DIR/clipboard-server.py" --port "$CLIPBOARD_PORT" >/dev/null 2>&1 &
+    fi
+    if voice_enabled && ! pgrep -f "mic-server.py" >/dev/null 2>&1; then
+        CLAUDED_MIC_CONSENT="${MIC_CONSENT:-session}" \
+            nohup python3 "$SCRIPT_DIR/mic-server.py" --port "$MIC_PORT" >/dev/null 2>&1 &
     fi
 }
 
@@ -334,6 +343,16 @@ docker_run() {
     ensure_bridge_token
     if [[ -s "$BRIDGE_TOKEN_FILE" ]]; then
         flags+=(-e "CLAUDED_BRIDGE_TOKEN=$(cat "$BRIDGE_TOKEN_FILE")")
+    fi
+
+    # Voice mode: enable the in-container PulseAudio + on-demand mic bridge
+    if voice_enabled; then
+        flags+=(
+            -e "CLAUDED_VOICE=1"
+            -e "CLAUDED_MIC_HOST=host.docker.internal"
+            -e "CLAUDED_MIC_PORT=${MIC_PORT}"
+            -e "CLAUDED_SESSION_NAME=${name}"
+        )
     fi
 
     # Use script to capture terminal output while preserving interactive mode
@@ -485,6 +504,9 @@ else:
                 shift ;;
             --no-force-ipv4)
                 FORCE_IPV4="false"
+                shift ;;
+            --no-voice)
+                NO_VOICE="1"
                 shift ;;
             --version)
                 CLAUDE_PIN_VERSION="$2"
@@ -801,6 +823,7 @@ clauded: Claude Code in Docker
   clauded --no-update                           Skip auto-update check on startup
   clauded --force-ipv4                          Force Anthropic endpoints to IPv4 (VPN/IPv6 fix)
   clauded --no-force-ipv4                        Disable the IPv4 fallback
+  clauded --no-voice                            Disable the microphone bridge for this session
   clauded --version 2.1.150                    Pin to a specific Claude Code version
   clauded --port 4000                          Expose port 4000 to Mac
   clauded --port 4000-4010                     Expose port range
