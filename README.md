@@ -27,6 +27,7 @@ Running Claude Code with full access to your Mac is risky. Claude's auto mode gu
 - **Resume by name or ID** — `clauded -r my-session` picks up where you left off
 - **Claude in Chrome** — drive your Mac's Chrome from the container, built in, no setup
 - **Mac bridges** — `/copy` and copy-on-select, clicked links, and sound notifications all reach your Mac
+- **Voice input** — Claude Code's voice mode works in the container; your Mac's mic is bridged in on-demand and gated by a per-session approval prompt
 - **MCP servers** — stdio and HTTP MCPs work inside Docker; Chromium bundled for Puppeteer/Playwright
 - **Auto host networking** — when enabled in Docker Desktop, container ports are reachable on your Mac without `--port`
 - **Works behind VPNs** — auto-detects broken IPv6 and pins Anthropic endpoints to IPv4 so sessions keep connecting
@@ -40,6 +41,7 @@ Running Claude Code with full access to your Mac is risky. Claude's auto mode gu
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (must be running)
 - Xcode Command Line Tools — provides `git`, `curl`, and `python3` (`xcode-select --install`)
 - A Claude account (Pro, Max, Teams, or Enterprise)
+- `sox` — only for voice input (`brew install sox`)
 
 ## Quick Start
 
@@ -93,6 +95,19 @@ clauded --version 2.1.150                  # Pin to a specific Claude Code versi
 ### Chrome Browser Control
 
 Claude in Chrome works out of the box. Install the [Claude in Chrome extension](https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn) and Claude can navigate, click, screenshot, and read the console in your Mac's Chrome from inside the container — no flag or setup required. The `mcp__claude-in-chrome__*` tools are available automatically.
+
+### Voice input
+
+Claude Code's voice mode works inside the container. A container-local PulseAudio exposes a source that Claude Code records from, and your Mac's microphone is streamed into it on demand — only while a recording is active. It's on by default; you need `sox` on your Mac (`brew install sox`).
+
+Because the container and any code running in it share one trust domain, consent is anchored on the host, where in-container code can't reach it:
+
+- **Per-session approval** — the first recording of each session opens a macOS dialog naming the session. Denied by default; it times out to denied. Approval is cached for that session (set `MIC_CONSENT="always"` to be asked before every recording).
+- **On-demand capture** — the mic is live only while you're actually dictating; macOS shows its microphone indicator the whole time.
+- **Token-gated** — the mic bridge only serves this Mac's containers (shared secret in `~/.clauded/bridge-token`).
+- **Audited, never stored** — every capture is logged to `~/.clauded/mic.log`; no audio is written to disk.
+
+Disable it with `VOICE="false"` in `~/.clauded/config`, or `--no-voice` for a single session.
 
 ### Ports & Mounts
 
