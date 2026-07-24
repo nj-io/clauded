@@ -195,9 +195,18 @@ ensure_ready() {
     if ! curl -sf "http://localhost:${CLIPBOARD_PORT}/health" >/dev/null 2>&1; then
         nohup python3 "$SCRIPT_DIR/clipboard-server.py" --port "$CLIPBOARD_PORT" >/dev/null 2>&1 &
     fi
-    if voice_enabled && ! pgrep -f "mic-server.py" >/dev/null 2>&1; then
-        CLAUDED_MIC_CONSENT="${MIC_CONSENT:-session}" \
-            nohup python3 "$SCRIPT_DIR/mic-server.py" --port "$MIC_PORT" >/dev/null 2>&1 &
+    if voice_enabled; then
+        if command -v sox >/dev/null 2>&1; then
+            pgrep -f "$SCRIPT_DIR/mic-server.py" >/dev/null 2>&1 || \
+                CLAUDED_MIC_CONSENT="${MIC_CONSENT:-session}" \
+                    nohup python3 "$SCRIPT_DIR/mic-server.py" --port "$MIC_PORT" >/dev/null 2>&1 &
+        else
+            local sox_hint="$HOME/.clauded/.voice-sox-hint-shown"
+            if [[ ! -f "$sox_hint" ]]; then
+                echo -e "${YELLOW}[claude]${NC} Voice input needs sox — install it with 'brew install sox'. (Disable this with VOICE=\"false\".)"
+                mkdir -p "$(dirname "$sox_hint")" && touch "$sox_hint"
+            fi
+        fi
     fi
 }
 
@@ -771,6 +780,34 @@ PLIST
     esac
 }
 
+cmd_voice() {
+    ensure_bridge_token
+    case "${1:-status}" in
+        start)
+            if ! command -v sox >/dev/null 2>&1; then
+                err "Voice input needs sox: brew install sox"; return 1
+            fi
+            if pgrep -f "$SCRIPT_DIR/mic-server.py" >/dev/null 2>&1; then
+                ok "Mic bridge already running on port ${MIC_PORT}."
+            else
+                CLAUDED_MIC_CONSENT="${MIC_CONSENT:-session}" \
+                    nohup python3 "$SCRIPT_DIR/mic-server.py" --port "$MIC_PORT" >/dev/null 2>&1 &
+                sleep 0.3
+                ok "Mic bridge started on port ${MIC_PORT}."
+            fi ;;
+        stop)
+            pkill -f "$SCRIPT_DIR/mic-server.py" 2>/dev/null && ok "Mic bridge stopped." || err "Not running." ;;
+        restart)
+            pkill -f "$SCRIPT_DIR/mic-server.py" 2>/dev/null; sleep 0.3; cmd_voice start ;;
+        status)
+            if pgrep -f "$SCRIPT_DIR/mic-server.py" >/dev/null 2>&1; then
+                ok "Mic bridge running on port ${MIC_PORT}."
+            else
+                echo -e "${YELLOW}Mic bridge not running.${NC}"
+            fi ;;
+    esac
+}
+
 cmd_setup() {
     log "=== Claude Code Docker Setup ==="
     echo ""
@@ -806,6 +843,7 @@ case "${1:-__default__}" in
     firewall)     shift; cmd_firewall "$@" ;;
     sounds)       shift; cmd_sounds "$@" ;;
     clipboard)    shift; cmd_clipboard "$@" ;;
+    voice)        shift; cmd_voice "$@" ;;
     setup)        cmd_setup ;;
     shell)        shift; cmd_shell "$@" ;;
     run)          shift; cmd_run "$@" ;;
@@ -844,6 +882,7 @@ clauded: Claude Code in Docker
   clauded firewall                             Lock down network access
   clauded sounds start|install                 Sound server for notifications
   clauded clipboard start|install              Clipboard server for /copy
+  clauded voice start|stop|restart|status      Microphone bridge for voice input
 
 Each invocation gets an auto-generated name. Run as many as you want.
 HELP

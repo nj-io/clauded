@@ -80,6 +80,6 @@
 
 33. **Removed unused `docker-compose.yml` and `.env.example`.** They described an API-key/`/home/claude` setup the tool doesn't use (it uses OAuth login and mirrors `$HOME`), which was misleading.
 
-## 2026-07-06
+## 2026-07-24
 
-34. **Voice mode (microphone bridge).** Claude Code's voice input now works inside the container. A container-local PulseAudio exposes a pipe-source that Claude Code's SoX records from; an on-demand client streams your Mac's mic into it only while you're actually dictating. On by default (`VOICE="false"` to disable, `--no-voice` per session). Security is anchored on the host, where a prompt-injected agent can't reach: the first recording of each session pops a macOS approval dialog (denied by default, cached per session; `MIC_CONSENT="always"` to prompt every time), capture is token-gated and on-demand, every capture is logged to `~/.clauded/mic.log`, nothing is written to disk, and macOS's mic indicator shows whenever it's live.
+34. **Voice mode (microphone bridge).** Claude Code's voice input now works inside the container. A container-local PulseAudio exposes a source that Claude Code's SoX records from, and your Mac's microphone is streamed into it while recording. On by default (`VOICE="false"` or `--no-voice` to turn off); needs `sox` on the Mac (`brew install sox`). The first recording of each session asks for approval via a macOS dialog (denied by default, remembered for the session; `MIC_CONSENT="always"` to be asked every time), capture is token-gated, macOS shows its mic indicator while a capture runs, and every capture is logged to `~/.clauded/mic.log`. Manage the host bridge with `clauded voice start|stop|status`.

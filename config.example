@@ -36,10 +36,10 @@ GITCONFIG=""
 # FORCE_IPV4="auto"
 
 # Voice mode: bridge your Mac's microphone into the container so Claude Code's
-# voice input works. On by default. The first recording of each session asks
-# for your approval via a macOS dialog (denied by default); the mic is live
-# only while you're actually dictating, and every capture is logged to
-# ~/.clauded/mic.log.
+# voice input works. On by default; needs sox on the Mac (brew install sox).
+# The first recording of each session asks for approval via a macOS dialog
+# (denied by default), macOS shows its mic indicator while recording, and every
+# capture is logged to ~/.clauded/mic.log.
 #   VOICE="false"          — disable the mic bridge entirely
 #   MIC_CONSENT="always"   — ask before every recording (default: once per session)
 # VOICE="true"
