@@ -3,10 +3,10 @@
 On-demand mic bridge client — runs inside the clauded container.
 
 Watches the container-local PulseAudio 'micbridge' pipe-source. While Claude
-Code is actually recording (source State: RUNNING), it opens an authenticated
-connection to the Mac mic-server and pumps microphone PCM into the pipe-source's
-FIFO. The moment recording stops, it disconnects — so the Mac mic is live only
-while you're dictating (and the macOS mic indicator reflects exactly that).
+Code is recording (source State: RUNNING), it opens an authenticated connection
+to the Mac mic-server and pumps microphone PCM into the pipe-source's FIFO;
+shortly after recording stops it disconnects (poll granularity is sub-second),
+so the Mac mic runs while you're recording rather than for the whole session.
 
 Env (injected by clauded):
   CLAUDED_MIC_HOST, CLAUDED_MIC_PORT, CLAUDED_BRIDGE_TOKEN,
@@ -22,7 +22,7 @@ HOST = os.environ.get("CLAUDED_MIC_HOST", "host.docker.internal")
 PORT = int(os.environ.get("CLAUDED_MIC_PORT", "21566"))
 TOKEN = os.environ.get("CLAUDED_BRIDGE_TOKEN", "")
 SESSION = os.environ.get("CLAUDED_SESSION_NAME", "clauded")
-FIFO = os.environ.get("CLAUDED_MIC_FIFO", "/tmp/clauded-mic.fifo")
+FIFO = os.environ.get("CLAUDED_MIC_FIFO", "/dev/shm/clauded-mic.fifo")
 SOURCE = "micbridge"
 CHUNK = 3200
 
@@ -88,7 +88,7 @@ def main():
     while True:
         if not source_running():
             backoff = MIN_RETRY
-            time.sleep(0.2)
+            time.sleep(0.5)  # idle poll; ~0.5s to start streaming once recording begins
             continue
         start = time.monotonic()
         try:

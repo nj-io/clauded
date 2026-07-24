@@ -114,7 +114,11 @@ def _read_header(conn):
         buf += chunk
     conn.settimeout(None)
     token, _, session = buf.split(b"\n", 1)[0].partition(b"\t")
-    return token.strip(), (session.strip().decode("utf-8", "replace") or "clauded")
+    # Sanitize the session label once (it goes into the dialog and the log):
+    # printable, no whitespace, bounded length.
+    sess = session.strip().decode("utf-8", "replace")
+    sess = "".join(c for c in sess if c.isprintable() and not c.isspace())[:64] or "clauded"
+    return token.strip(), sess
 
 
 def handle(conn):
