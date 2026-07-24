@@ -79,3 +79,7 @@
 32. **Clearer prerequisites.** `install.sh` now checks for `python3` and `curl` (macOS lacks them until the Xcode Command Line Tools are installed) and the README lists them.
 
 33. **Removed unused `docker-compose.yml` and `.env.example`.** They described an API-key/`/home/claude` setup the tool doesn't use (it uses OAuth login and mirrors `$HOME`), which was misleading.
+
+## 2026-07-06
+
+34. **Voice mode (microphone bridge).** Claude Code's voice input now works inside the container. A container-local PulseAudio exposes a pipe-source that Claude Code's SoX records from; an on-demand client streams your Mac's mic into it only while you're actually dictating. On by default (`VOICE="false"` to disable, `--no-voice` per session). Security is anchored on the host, where a prompt-injected agent can't reach: the first recording of each session pops a macOS approval dialog (denied by default, cached per session; `MIC_CONSENT="always"` to prompt every time), capture is token-gated and on-demand, every capture is logged to `~/.clauded/mic.log`, nothing is written to disk, and macOS's mic indicator shows whenever it's live.

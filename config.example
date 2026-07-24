@@ -34,3 +34,13 @@ GITCONFIG=""
 #   true           — always pin to IPv4
 #   false          — never pin
 # FORCE_IPV4="auto"
+
+# Voice mode: bridge your Mac's microphone into the container so Claude Code's
+# voice input works. On by default. The first recording of each session asks
+# for your approval via a macOS dialog (denied by default); the mic is live
+# only while you're actually dictating, and every capture is logged to
+# ~/.clauded/mic.log.
+#   VOICE="false"          — disable the mic bridge entirely
+#   MIC_CONSENT="always"   — ask before every recording (default: once per session)
+# VOICE="true"
+# MIC_CONSENT="session"
