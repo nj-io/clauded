@@ -100,7 +100,7 @@ Claude in Chrome works out of the box. Install the [Claude in Chrome extension](
 
 Claude Code's voice mode works inside the container. A container-local PulseAudio exposes a source that Claude Code records from, and your Mac's microphone is streamed into it while you're recording. It's on by default and needs `sox` on your Mac (`brew install sox`).
 
-The first time each session records, macOS asks you to approve microphone access for it — denied by default, and approval is then remembered for that session (set `MIC_CONSENT="always"` in `~/.clauded/config` to be asked before every recording). macOS shows its microphone indicator whenever a capture is running, each capture is logged to `~/.clauded/mic.log`, and access requires the per-machine token in `~/.clauded/bridge-token` that clauded gives its containers.
+The first time each session records, macOS asks you to approve microphone access for it — denied by default. After you approve, it won't ask again for that session for about an hour (set `MIC_CONSENT="always"` in `~/.clauded/config` to be asked before every recording). macOS shows its microphone indicator whenever a capture is running, each capture is logged to `~/.clauded/mic.log`, and access requires the per-machine token in `~/.clauded/bridge-token` that clauded gives its containers.
 
 Turn it off with `VOICE="false"` in `~/.clauded/config`, or `--no-voice` for one session. Manage the host bridge with `clauded voice start|stop|status`.
 

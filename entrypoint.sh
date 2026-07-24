@@ -12,9 +12,12 @@ done
 # pipe-source fed (on demand) from the Mac mic by mic-bridge-client.py.
 # Claude Code's `sox -d` then records through it. Gated on CLAUDED_VOICE=1.
 setup_voice() {
-    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/clauded-xdg}"
+    # Keep the PulseAudio runtime dir and the mic FIFO on a container-local
+    # tmpfs (/dev/shm), NOT under /tmp — clauded bind-mounts /tmp from the Mac,
+    # and named pipes / Unix sockets on Docker Desktop's file sharing are unreliable.
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/dev/shm/clauded-xdg}"
     mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
-    export CLAUDED_MIC_FIFO="${CLAUDED_MIC_FIFO:-/tmp/clauded-mic.fifo}"
+    export CLAUDED_MIC_FIFO="${CLAUDED_MIC_FIFO:-/dev/shm/clauded-mic.fifo}"
     pulseaudio --start --exit-idle-time=-1 >/dev/null 2>&1 || return 0
     for _ in $(seq 1 20); do pactl info >/dev/null 2>&1 && break; sleep 0.1; done
     pactl info >/dev/null 2>&1 || return 0
