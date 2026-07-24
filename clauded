@@ -288,13 +288,21 @@ docker_run() {
     )
 
     # Optional SSH config override
-    if [[ -n "$SSH_CONFIG" && -f "$SSH_CONFIG" ]]; then
-        flags+=(-v "$SSH_CONFIG:$HOME/.ssh/config:ro")
+    if [[ -n "$SSH_CONFIG" ]]; then
+        if [[ -f "$SSH_CONFIG" ]]; then
+            flags+=(-v "$SSH_CONFIG:$HOME/.ssh/config:ro")
+        else
+            echo -e "${YELLOW}[claude]${NC} SSH_CONFIG points to '$SSH_CONFIG' but it doesn't exist — using ~/.ssh/config as-is. macOS-only options (e.g. UseKeychain) will break git over SSH in the container. Copy ssh-config-docker.example to create it."
+        fi
     fi
 
     # Optional gitconfig override
-    if [[ -n "$GITCONFIG" && -f "$GITCONFIG" ]]; then
-        flags+=(-v "$GITCONFIG:$HOME/.gitconfig:ro")
+    if [[ -n "$GITCONFIG" ]]; then
+        if [[ -f "$GITCONFIG" ]]; then
+            flags+=(-v "$GITCONFIG:$HOME/.gitconfig:ro")
+        else
+            echo -e "${YELLOW}[claude]${NC} GITCONFIG points to '$GITCONFIG' but it doesn't exist — the container won't get your git identity/credentials. Copy gitconfig-docker.example to create it."
+        fi
     fi
 
     # Extra mount directories from config
