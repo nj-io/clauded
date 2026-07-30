@@ -88,6 +88,20 @@ RUN mkdir -p /etc/ssh && ssh-keyscan github.com >> /etc/ssh/ssh_known_hosts 2>/d
 
 RUN pip3 install pre-commit --break-system-packages
 
+# Python 3.12 alongside the system 3.11.
+# node:22-slim is Debian 12 (Bookworm), whose system python3 is 3.11 — kept as
+# the default so apt/pip tooling (e.g. pre-commit above) stays undisturbed.
+# Debian ships no clean 3.12 (Bookworm=3.11, Trixie=3.13), so uv fetches a
+# standalone build into /opt, which is outside the $HOME bind-mount and so
+# stays baked in the image. Sessions get python3.12 on PATH, plus `uv` to pull
+# any other version on demand (uv python install 3.13, uv venv --python 3.12).
+ENV UV_INSTALL_DIR=/usr/local/bin
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    uv python install 3.12 && \
+    ln -sf "$(uv python find 3.12)" /usr/local/bin/python3.12 && \
+    chmod -R a+rX /opt/uv
+
 USER claude
 
 # Install Claude Code — pinned version via npm, latest via installer

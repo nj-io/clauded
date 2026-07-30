@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-30
+
+35. **Python 3.12 in the image.** The base `node:22-slim` (Debian 12) only provides Python 3.11, so sessions needing 3.12 had to build it every launch and lose it on the next. The image now ships `uv` (installed to `/usr/local/bin`) and a baked-in standalone Python 3.12 under `/opt/uv/python`, symlinked to `python3.12` on PATH. The system `python3` stays 3.11 so `pre-commit` and apt tooling are undisturbed. `uv` is also available for any other version (`uv python install 3.13`, `uv venv --python 3.12`). Baked under `/opt` (outside the `$HOME` bind-mount) so it persists in the image rather than the mounted home.
+
 ## 2026-04-03
 
 1. **Clipboard support.** Claude Code's `/copy` command now copies to your Mac's native clipboard. Works via an HTTP clipboard server (`clipboard-server.py`, port 21564) on the Mac, with `xclip` and `xsel` shims inside the container. Also includes `pbcopy`/`pbpaste` shims as fallbacks. Auto-starts in `ensure_ready()` with a `clauded clipboard start|stop|install|status` subcommand.
