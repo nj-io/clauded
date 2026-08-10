@@ -607,7 +607,12 @@ cmd_run() {
     extra_mounts+=("${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}")
 
     log "Running prompt in '${session}'"
-    docker_run "$cn" "$workdir" "false" "${extra_mounts[@]+"${extra_mounts[@]}"}" -p "$prompt"
+    # -p is Claude Code's --print flag. Route it through CLAUDE_EXTRA_ARGS so it
+    # lands after the image name; a bare trailing -p sits in docker's own flag
+    # slot, where docker parses it as --publish and rejects any prompt with a
+    # colon ("invalid containerPort").
+    CLAUDE_EXTRA_ARGS=(-p "$prompt")
+    docker_run "$cn" "$workdir" "false" "${extra_mounts[@]+"${extra_mounts[@]}"}"
 }
 
 cmd_shell() {

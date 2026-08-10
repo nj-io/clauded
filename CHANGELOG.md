@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-10
+
+36. **Fixed `clauded run "prompt"`.** The prompt was passed to `docker run` in its own flag position instead of after the image name, so docker read the `-p` (Claude Code's `--print`) as its own `--publish` flag and rejected any prompt containing a colon (`invalid containerPort`). `clauded run` had never worked since the initial release. The prompt now routes through `CLAUDE_EXTRA_ARGS`, which is appended after the image, so `claude -p "<prompt>"` runs as intended. `clauded --agent … "prompt"` was unaffected (it already used the after-image argument path).
+
 ## 2026-07-30
 
 35. **Python 3.12 in the image.** The base `node:22-slim` (Debian 12) only provides Python 3.11, so sessions needing 3.12 had to build it every launch and lose it on the next. The image now ships `uv` (installed to `/usr/local/bin`) and a baked-in standalone Python 3.12 under `/opt/uv/python`, symlinked to `python3.12` on PATH. The system `python3` stays 3.11 so `pre-commit` and apt tooling are undisturbed. `uv` is also available for any other version (`uv python install 3.13`, `uv venv --python 3.12`). Baked under `/opt` (outside the `$HOME` bind-mount) so it persists in the image rather than the mounted home.
