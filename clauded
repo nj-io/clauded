@@ -175,7 +175,12 @@ ensure_ready() {
             latest="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || true
             if [[ -n "$latest" && -n "$current" && "$current" != "$latest" ]]; then
                 log "Updating Claude Code: $current → $latest"
-                cmd_build
+                # Best-effort: a failed or interrupted update must not block the
+                # launch when a working image already exists — fall back to it.
+                if ! cmd_build; then
+                    err "Update to $latest didn't finish — launching on the current image ($current)."
+                    err "Finish later with 'clauded build'. If a launch ever hangs with no output, run 'docker builder prune -f'."
+                fi
             fi
         fi
     fi
@@ -674,12 +679,23 @@ cmd_build() {
     local old_image
     old_image="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
     log "Building image (${ver})..."
+    # Capture the build's real exit code (survives set -e) so callers can treat a
+    # failed or interrupted update as non-fatal and fall back to the current
+    # image. Ctrl-C during the build is reported as an interrupt (rc=130).
+    local rc=0
+    trap 'rc=130' INT
     docker build \
         --build-arg CLAUDE_VERSION="$ver" \
         --build-arg USER_ID="$(id -u)" \
         --build-arg GROUP_ID="$(id -g)" \
         --build-arg HOME_DIR="$HOME" \
-        -t "$IMAGE_NAME" "$SCRIPT_DIR"
+        -t "$IMAGE_NAME" "$SCRIPT_DIR" || rc=$?
+    trap - INT
+    if (( rc != 0 )); then
+        err "Image build did not finish (exit $rc)."
+        (( rc == 130 )) && err "Interrupted — re-run 'clauded build' to finish. If a later launch hangs with no output, run 'docker builder prune -f'."
+        return "$rc"
+    fi
     # Remove only clauded's own previous image if this build replaced it.
     # (Deliberately not `docker system/builder prune` — that would wipe other
     # projects' images and the shared build cache.)
