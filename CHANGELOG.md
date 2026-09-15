@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-15
+
+38. **clauded and the installer refuse to run as root.** Running the installer under `sudo` (e.g. `sudo ./install.sh`) cloned `~/.clauded` as root and built the image as root. With `id -u` returning 0, the Dockerfile's `useradd -u 0` failed with `UID 0 is not unique`, and the root-owned clone was then rejected by git ("dubious ownership") and unwritable for clauded. Both `clauded` and `install.sh` now exit with a clear message when run as root, before writing anything. If `~/.clauded` or one of its top-level entries is owned by another user, they print the exact `sudo chown -R` command that restores ownership. The Dockerfile also stops with an explicit message when `USER_ID` is 0.
+
+39. **The installer creates `/usr/local/bin` when it is missing.** Fresh Apple Silicon Macs have no `/usr/local/bin` (Homebrew installs to `/opt/homebrew`), so after a successful build the symlink step failed with "No such file or directory". The installer now runs `sudo mkdir -p` first; `/etc/paths` already puts the directory on PATH. The README's manual install steps and the `clauded setup` PATH hint include the same `mkdir`.
+
 ## 2026-08-10
 
 36. **Fixed `clauded run "prompt"`.** The prompt was passed to `docker run` in its own flag position instead of after the image name, so docker read the `-p` (Claude Code's `--print`) as its own `--publish` flag and rejected any prompt containing a colon (`invalid containerPort`). `clauded run` had never worked since the initial release. The prompt now routes through `CLAUDE_EXTRA_ARGS`, which is appended after the image, so `claude -p "<prompt>"` runs as intended. `clauded --agent … "prompt"` was unaffected (it already used the after-image argument path).

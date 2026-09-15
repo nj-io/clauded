@@ -19,6 +19,29 @@ MIC_PORT="${CLAUDE_MIC_PORT:-21566}"
 BRIDGE_TOKEN_FILE="$HOME/.clauded/bridge-token"
 GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
 
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+log() { echo -e "${BLUE}[claude]${NC} $*"; }
+err() { echo -e "${RED}[claude]${NC} $*" >&2; }
+ok()  { echo -e "${GREEN}[claude]${NC} $*"; }
+
+# clauded runs as the logged-in user. Under sudo, `id -u` is 0: the image is
+# built for UID 0 (useradd: UID 0 is not unique) and ~/.clauded collects
+# root-owned files that block later runs. Docker Desktop needs no root.
+require_normal_user() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        err "Run clauded as your normal user, without sudo."
+        exit 1
+    fi
+    local foreign
+    foreign="$(find "$HOME/.clauded" -maxdepth 1 ! -user "$(id -u)" -print -quit 2>/dev/null)" || true
+    if [[ -n "$foreign" ]]; then
+        err "$foreign is owned by another user, usually left by an earlier sudo run. Restore ownership, then retry:"
+        err "  sudo chown -R $(id -un):$(id -gn) \"$HOME/.clauded\""
+        exit 1
+    fi
+}
+require_normal_user
+
 # Migrate from old .claude-docker directory if it exists
 if [[ -d "$HOME/.claude-docker" && ! -d "$HOME/.clauded" ]]; then
     mv "$HOME/.claude-docker" "$HOME/.clauded"
@@ -35,11 +58,6 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     cp "$SCRIPT_DIR/config.example" "$CONFIG_FILE" 2>/dev/null || true
 fi
 [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
-
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; NC='\033[0m'
-log() { echo -e "${BLUE}[claude]${NC} $*"; }
-err() { echo -e "${RED}[claude]${NC} $*" >&2; }
-ok()  { echo -e "${GREEN}[claude]${NC} $*"; }
 
 auto_name() { printf '%04x' $((RANDOM % 65536)); }
 
@@ -859,7 +877,8 @@ cmd_setup() {
         ok "clauded is in PATH."
     else
         echo -e "${YELLOW}Add to PATH:${NC}"
-        echo "  ln -s $SCRIPT_DIR/clauded /usr/local/bin/clauded"
+        echo "  sudo mkdir -p /usr/local/bin"
+        echo "  sudo ln -sf $SCRIPT_DIR/clauded /usr/local/bin/clauded"
     fi
     echo ""
     ok "Ready. Just run: clauded"

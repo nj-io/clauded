@@ -49,7 +49,7 @@ Running Claude Code with full access to your Mac is risky. Claude's auto mode gu
 curl -fsSL https://raw.githubusercontent.com/nj-io/clauded/main/install.sh | bash
 ```
 
-This clones the repo, builds the Docker image, symlinks `clauded` and `play-sound` to your PATH, and starts the clipboard/sound host services.
+This clones the repo, builds the Docker image, symlinks `clauded` and `play-sound` to your PATH, and starts the clipboard/sound host services. Run it as your normal user, without `sudo`: the installer asks for your password only to create `/usr/local/bin` if needed and link into it. clauded itself refuses to run as root, because a root build targets UID 0 and leaves root-owned files in `~/.clauded`.
 
 <details>
 <summary>Manual installation</summary>
@@ -57,6 +57,7 @@ This clones the repo, builds the Docker image, symlinks `clauded` and `play-soun
 ```bash
 git clone https://github.com/nj-io/clauded.git ~/.clauded
 cd ~/.clauded && ./clauded build
+sudo mkdir -p /usr/local/bin
 sudo ln -sf ~/.clauded/clauded /usr/local/bin/clauded
 sudo ln -sf ~/.clauded/play-sound /usr/local/bin/play-sound
 ```

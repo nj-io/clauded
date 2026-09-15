@@ -58,6 +58,11 @@ RUN mkdir -p /opt/google/chrome && ln -sf /usr/bin/chromium /opt/google/chrome/c
 ARG USER_ID=501
 ARG GROUP_ID=20
 ARG HOME_DIR=/home/claude
+# USER_ID 0 means the build ran under sudo; the container user must not be root.
+RUN if [ "${USER_ID}" = "0" ]; then \
+        echo "clauded: USER_ID is 0 because the build ran as root. Run clauded without sudo." >&2; \
+        exit 1; \
+    fi
 RUN groupadd -g ${GROUP_ID} claude 2>/dev/null || true && \
     useradd -m -u ${USER_ID} -g ${GROUP_ID} -d ${HOME_DIR} -s /bin/bash claude && \
     mkdir -p ${HOME_DIR} && chown ${USER_ID}:${GROUP_ID} ${HOME_DIR} && \
