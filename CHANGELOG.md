@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-16
+
+40. **clauded updates itself.** Previously, new clauded releases only arrived by re-running the installer.
+    - Updates download in the background and apply the next time clauded starts.
+    - When an update changes the Docker image, clauded rebuilds it on launch.
+    - `clauded update` installs the latest release immediately.
+    - `--no-update` and `SKIP_UPDATE=true` now skip clauded updates as well as Claude Code updates.
+    - Existing installs need one re-run of the installer to turn this on.
+
 ## 2026-09-15
 
 38. **clauded and the installer refuse to run as root.** Running the installer under `sudo` (e.g. `sudo ./install.sh`) cloned `~/.clauded` as root and built the image as root. With `id -u` returning 0, the Dockerfile's `useradd -u 0` failed with `UID 0 is not unique`, and the root-owned clone was then rejected by git ("dubious ownership") and unwritable for clauded. Both `clauded` and `install.sh` now exit with a clear message when run as root, before writing anything. If `~/.clauded` or one of its top-level entries is owned by another user, they print the exact `sudo chown -R` command that restores ownership. The Dockerfile also stops with an explicit message when `USER_ID` is 0.

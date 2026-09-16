@@ -21,7 +21,7 @@ SSH_CONFIG=""
 # GITCONFIG="$SCRIPT_DIR/gitconfig-docker"
 GITCONFIG=""
 
-# Skip auto-update check on startup (same as --no-update flag)
+# Skip the startup update checks for clauded and Claude Code (same as --no-update flag)
 # SKIP_UPDATE="true"
 
 # Pin to a specific Claude Code version (same as --version flag)

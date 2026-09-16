@@ -31,7 +31,7 @@ Running Claude Code with full access to your Mac is risky. Claude's auto mode gu
 - **MCP servers** — stdio and HTTP MCPs work inside Docker; Chromium bundled for Puppeteer/Playwright
 - **Auto host networking** — when enabled in Docker Desktop, container ports are reachable on your Mac without `--port`
 - **Works behind VPNs** — auto-detects broken IPv6 and pins Anthropic endpoints to IPv4 so sessions keep connecting
-- **Versioning** — auto-updates Claude Code on startup; pin an exact version with `--version` or freeze updates with `--no-update`
+- **Versioning** — keeps clauded and Claude Code current on startup, and rebuilds the image when either changes; apply an update now with `clauded update`, pin Claude Code with `--version`, or freeze both with `--no-update`
 - **Git and SSH** — SSH keys mounted, GitHub auth forwarded via `GH_TOKEN`
 - **Configurable** — project directory, extra mounts, SSH/git overrides in `~/.clauded/config`
 
@@ -141,6 +141,7 @@ clauded clipboard start|stop|restart|status|install|uninstall  # Clipboard bridg
 
 ```bash
 clauded build                              # Build/rebuild (auto-detects updates)
+clauded update                             # Get the latest clauded release, then rebuild
 clauded firewall                           # Lock down outbound network access
 clauded setup                              # Full setup wizard
 ```
@@ -162,7 +163,7 @@ SSH_CONFIG="$SCRIPT_DIR/ssh-config-docker"
 # Custom gitconfig for Docker (leave empty to use ~/.gitconfig)
 GITCONFIG="$SCRIPT_DIR/gitconfig-docker"
 
-# Skip the auto-update check on startup (same as --no-update)
+# Skip the startup update checks for clauded and Claude Code (same as --no-update)
 # SKIP_UPDATE="true"
 
 # Pin Claude Code to a specific version (same as --version)

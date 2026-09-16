@@ -18,6 +18,8 @@ CLIPBOARD_PORT="${CLAUDE_CLIPBOARD_PORT:-21564}"
 MIC_PORT="${CLAUDE_MIC_PORT:-21566}"
 BRIDGE_TOKEN_FILE="$HOME/.clauded/bridge-token"
 GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+# Kept for the restart that follows a self-update.
+CLAUDED_ARGV=("$@")
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log() { echo -e "${BLUE}[claude]${NC} $*"; }
@@ -161,7 +163,40 @@ finally:
 PY
 }
 
+# The installed copy, which install.sh marks with clauded.autoupdate=true, follows
+# the release branch. Each launch fetches in the background and the next launch
+# fast-forwards onto what it staged, then restarts, so the network never delays
+# startup. Local changes, another branch, or diverged history leave it untouched,
+# which keeps development checkouts out of this.
+self_update() {
+    local dir="$SCRIPT_DIR"
+    [[ "$(git -C "$dir" config --get clauded.autoupdate 2>/dev/null)" == "true" ]] || return 0
+    if [[ -z "${CLAUDED_SELF_UPDATED:-}" ]] \
+        && [[ "$(git -C "$dir" symbolic-ref --short HEAD 2>/dev/null)" == "main" ]] \
+        && git -C "$dir" diff --quiet HEAD 2>/dev/null \
+        && [[ "$(git -C "$dir" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)" -gt 0 ]] \
+        && git -C "$dir" merge --ff-only --quiet origin/main >/dev/null 2>&1; then
+        log "Updated clauded to $(git -C "$dir" rev-parse --short HEAD). Restarting..."
+        CLAUDED_SELF_UPDATED=1 exec "$dir/clauded" ${CLAUDED_ARGV[@]+"${CLAUDED_ARGV[@]}"}
+    fi
+    GIT_TERMINAL_PROMPT=0 git -C "$dir" fetch --quiet origin main >/dev/null 2>&1 &
+}
+
+# The image carries the clauded commit it was built from (clauded.revision), so a
+# checkout that has moved on — by self-update or a manual pull — triggers a rebuild.
+# An image built before that label existed reports nothing and rebuilds once.
+image_behind_checkout() {
+    local head built
+    head="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" || return 1
+    [[ -n "$head" ]] || return 1
+    built="$(docker image inspect --format '{{index .Config.Labels "clauded.revision"}}' "$IMAGE_NAME" 2>/dev/null)" || return 1
+    [[ "$built" != "$head" ]]
+}
+
 ensure_ready() {
+    if [[ "${SKIP_UPDATE:-}" != "true" ]]; then
+        self_update
+    fi
     local hint_marker="$HOME/.clauded/.host-net-hint-shown"
     if ! check_host_networking && [[ ! -f "$hint_marker" ]]; then
         echo -e "${YELLOW}[claude]${NC} Tip: enable Docker Desktop host networking for automatic port access."
@@ -184,19 +219,29 @@ ensure_ready() {
         if [[ "$current" != "$pin" ]]; then
             log "Pinning Claude Code: $current → $pin"
             cmd_build "$pin"
+        elif [[ "${SKIP_UPDATE:-}" != "true" ]] && image_behind_checkout; then
+            log "Rebuilding image for clauded $(git -C "$SCRIPT_DIR" rev-parse --short HEAD)"
+            if ! cmd_build "$pin"; then
+                err "Image rebuild didn't finish — launching on the current image ($current)."
+            fi
         fi
     else
         # Check for Claude Code updates (skip with --no-update or SKIP_UPDATE=true in config)
         if [[ "${SKIP_UPDATE:-}" != "true" ]]; then
-            local current latest
+            local current latest reason=""
             current="$(docker run --rm --entrypoint claude "$IMAGE_NAME" --version 2>/dev/null | head -1 | awk '{print $1}')" || true
             latest="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || true
             if [[ -n "$latest" && -n "$current" && "$current" != "$latest" ]]; then
-                log "Updating Claude Code: $current → $latest"
+                reason="Updating Claude Code: $current → $latest"
+            elif image_behind_checkout; then
+                reason="Rebuilding image for clauded $(git -C "$SCRIPT_DIR" rev-parse --short HEAD)"
+            fi
+            if [[ -n "$reason" ]]; then
+                log "$reason"
                 # Best-effort: a failed or interrupted update must not block the
                 # launch when a working image already exists — fall back to it.
                 if ! cmd_build; then
-                    err "Update to $latest didn't finish — launching on the current image ($current)."
+                    err "Image update didn't finish — launching on the current image ($current)."
                     err "Finish later with 'clauded build'. If a launch ever hangs with no output, run 'docker builder prune -f'."
                 fi
             fi
@@ -689,6 +734,17 @@ cmd_stop_all() {
     ok "All sessions stopped."
 }
 
+cmd_update() {
+    if ! git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+        err "$SCRIPT_DIR is not a git checkout. Re-run install.sh to update."
+        exit 1
+    fi
+    log "Updating clauded in $SCRIPT_DIR..."
+    git -C "$SCRIPT_DIR" pull --ff-only
+    # Build with the launcher that was just pulled, so new build steps apply.
+    exec "$SCRIPT_DIR/clauded" build
+}
+
 cmd_build() {
     local ver="${1:-}"
     if [[ -z "$ver" ]]; then
@@ -704,6 +760,7 @@ cmd_build() {
     trap 'rc=130' INT
     docker build \
         --build-arg CLAUDE_VERSION="$ver" \
+        --build-arg CLAUDED_REVISION="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)" \
         --build-arg USER_ID="$(id -u)" \
         --build-arg GROUP_ID="$(id -g)" \
         --build-arg HOME_DIR="$HOME" \
@@ -890,6 +947,7 @@ case "${1:-__default__}" in
     stop)         shift; cmd_stop "$@" ;;
     stop-all)     cmd_stop_all ;;
     build)        cmd_build ;;
+    update)       cmd_update ;;
     firewall)     shift; cmd_firewall "$@" ;;
     sounds)       shift; cmd_sounds "$@" ;;
     clipboard)    shift; cmd_clipboard "$@" ;;
@@ -908,7 +966,7 @@ clauded: Claude Code in Docker
   clauded --worktree                           Start in a git worktree
   clauded --worktree <name>                    Named worktree
   clauded --agent <name> "prompt"              Run a Claude agent
-  clauded --no-update                           Skip auto-update check on startup
+  clauded --no-update                           Skip clauded and Claude Code update checks
   clauded --force-ipv4                          Force Anthropic endpoints to IPv4 (VPN/IPv6 fix)
   clauded --no-force-ipv4                        Disable the IPv4 fallback
   clauded --no-voice                            Disable the microphone bridge for this session
@@ -929,6 +987,7 @@ clauded: Claude Code in Docker
   clauded run "prompt"                         Quick non-interactive query
   clauded shell                                Bash into most recent session
   clauded build                                Build/rebuild Docker image
+  clauded update                               Update clauded, then rebuild the image
   clauded firewall                             Lock down network access
   clauded sounds start|install                 Sound server for notifications
   clauded clipboard start|install              Clipboard server for /copy

@@ -123,4 +123,9 @@ RUN mkdir -p ~/dev ~/.claude && mkdir -m 700 -p ~/.ssh
 
 WORKDIR ${HOME_DIR}/dev
 
+# The clauded commit this image was built from. clauded compares it with its
+# checkout and rebuilds when the checkout has moved on.
+ARG CLAUDED_REVISION=unknown
+LABEL clauded.revision=${CLAUDED_REVISION}
+
 ENTRYPOINT ["entrypoint.sh"]

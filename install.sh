@@ -63,6 +63,9 @@ fi
 
 cd "$INSTALL_DIR"
 
+# Mark this copy as the installed one, so it follows the release branch on launch.
+git config clauded.autoupdate true
+
 # Build the Docker image
 log "Building Docker image (this takes a few minutes on first install)..."
 ./clauded build
@@ -92,7 +95,7 @@ ok "Installed successfully."
 echo ""
 echo "  Run:              clauded"
 echo "  Resume session:   clauded -r <name-or-id>"
-echo "  Update:           clauded build"
+echo "  Update:           clauded update"
 echo "  Help:             clauded help"
 echo ""
 echo -e "  ${YELLOW}Optional:${NC} Auto-start services on login:"

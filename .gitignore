@@ -4,6 +4,14 @@
 session-names.json
 resume.log
 
+# clauded's own state, which lives in the install directory
+/config
+/bridge-token
+/home/
+/tmp/
+/.host-net-hint-shown
+/.voice-sox-hint-shown
+
 # User-specific configs (created from .example files)
 gitconfig-docker
 ssh-config-docker
