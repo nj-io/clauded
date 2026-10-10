@@ -442,7 +442,15 @@ docker_run() {
 
     # Use script to capture terminal output while preserving interactive mode
     local resume_log="$HOME/.clauded/tmp/$name/resume.log"
-    script -q "$resume_log" docker run "${flags[@]}" "$@" "$IMAGE_NAME" --dangerously-skip-permissions ${CLAUDE_EXTRA_FLAGS:-} "${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}" || true
+    # Claude in Chrome is on for every session unless CHROME="false" in config.
+    # A --chrome or --no-chrome passed through to Claude Code takes precedence.
+    local chrome_flag=()
+    if [[ "${CHROME:-true}" != "false" \
+        && " ${CLAUDE_EXTRA_ARGS[*]-} " != *" --chrome "* \
+        && " ${CLAUDE_EXTRA_ARGS[*]-} " != *" --no-chrome "* ]]; then
+        chrome_flag=(--chrome)
+    fi
+    script -q "$resume_log" docker run "${flags[@]}" "$@" "$IMAGE_NAME" --dangerously-skip-permissions "${chrome_flag[@]+"${chrome_flag[@]}"}" ${CLAUDE_EXTRA_FLAGS:-} "${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}" || true
     # Parse session ID or name from Claude's own "claude --resume" output
     IFS=$'\t' read -r last_id last_name < <(python3 -c "
 import re, json, os

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-10
+
+41. **Claude in Chrome is on in every session.** clauded starts Claude Code with Chrome enabled, so the Chrome tools load in the container without extra flags.
+    - To turn it off, set `CHROME="false"` in `~/.clauded/config`.
+    - `--no-chrome` turns it off for one session.
+
 ## 2026-09-16
 
 40. **clauded updates itself.** Previously, new clauded releases only arrived by re-running the installer.

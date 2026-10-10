@@ -97,6 +97,8 @@ clauded --version 2.1.150                  # Pin to a specific Claude Code versi
 
 Claude in Chrome works out of the box. Install the [Claude in Chrome extension](https://chromewebstore.google.com/detail/claude/fcoeoabgfenejglbffodgkkbkcdhcgfn) and Claude can navigate, click, screenshot, and read the console in your Mac's Chrome from inside the container — no flag or setup required. The `mcp__claude-in-chrome__*` tools are available automatically.
 
+clauded starts every session with Chrome enabled. To turn it off, set `CHROME="false"` in `~/.clauded/config`, or pass `--no-chrome` for one session.
+
 ### Voice input
 
 Claude Code's voice mode works inside the container. A container-local PulseAudio exposes a source that Claude Code records from, and your Mac's microphone is streamed into it while you're recording. It's on by default and needs `sox` on your Mac (`brew install sox`).

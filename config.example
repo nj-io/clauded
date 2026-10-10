@@ -44,3 +44,9 @@ GITCONFIG=""
 #   MIC_CONSENT="always"   — ask before every recording (default: once per session)
 # VOICE="true"
 # MIC_CONSENT="session"
+
+# Claude in Chrome: every session starts with Chrome enabled, so the Chrome
+# tools load whenever the extension is connected. Pass --no-chrome to turn it
+# off for one session.
+#   CHROME="false"   — start sessions without Chrome
+# CHROME="true"
