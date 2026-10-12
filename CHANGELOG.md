@@ -2,6 +2,12 @@
 
 ## 2026-10-12
 
+43. **Instructions for container sessions only.** Rules that apply inside clauded, and nowhere else, can go in a file every clauded session reads.
+    - Put them in `~/.clauded/home/AGENTS.md`. Sessions on the Mac never read it.
+    - Copy `container-AGENTS.md.example` to start.
+    - Use it to record which Mac-only tools are missing in the container and what to use instead.
+    - The file stays local and is never part of a clauded release.
+
 42. **Custom tools in the image.** clauded can build extra tools into the image, so they survive updates.
     - Put a Dockerfile in `~/.clauded/custom/`. clauded builds it on top of its own image.
     - It starts `FROM claude-code:base` and ends as the `claude` user. clauded refuses a layer that breaks either rule and says which.

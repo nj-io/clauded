@@ -1,0 +1,29 @@
+# Instructions for clauded sessions
+#
+# Copy this file to ~/.clauded/home/AGENTS.md and edit it.
+#
+# That directory is the container's home, so every clauded session reads this as
+# its project instructions. Sessions running on your Mac never see it. Claude Code
+# picks AGENTS.md up on its own; no symlink is needed.
+#
+# Record what is true only inside the container, so a session does not have to
+# discover it by failing first.
+
+## This session runs in a Docker container
+
+The working directory, ~/dev and ~/.claude are shared with the Mac. Everything
+else is the container's own and resets when the session ends.
+
+## Tools that live on the Mac
+
+Tools installed on the Mac with Homebrew are absent here. Where a container
+replacement exists, name it and say which to use:
+
+- `pbcopy` / `pbpaste` work: they forward to the Mac's clipboard.
+- `open` works through `xdg-open`, opening in the Mac's browser.
+- `<your-mac-tool>` is not installed. Use `<container-equivalent>` instead.
+
+## Tools added to the image
+
+Anything installed through ~/.clauded/custom/Dockerfile is available here. List
+what it provides so a session knows to reach for it.

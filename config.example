@@ -26,6 +26,10 @@ GITCONFIG=""
 # the claude user. The directory is the build context, so COPY works.
 # See the README for an example.
 
+# Instructions for container sessions only: put them in ~/.clauded/home/AGENTS.md.
+# Every clauded session reads that file; sessions on the Mac never see it.
+# Copy container-AGENTS.md.example to start.
+
 # Skip the startup update checks for clauded and Claude Code (same as --no-update flag)
 # SKIP_UPDATE="true"
 

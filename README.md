@@ -164,6 +164,12 @@ Two rules. The `FROM` line reads `claude-code:base`, and the layer ends as the `
 
 The directory is the build context, so `COPY` picks up files beside the Dockerfile, and a `.dockerignore` there keeps large files out of the build. Editing the Dockerfile is picked up on the next launch. If the custom build fails, clauded keeps the last working image, says so, and waits for the file to change before trying again.
 
+### Instructions for container sessions
+
+Rules that should apply inside clauded and nowhere else go in `~/.clauded/home/AGENTS.md`. That directory is the container's home, so every clauded session reads the file as its project instructions, and sessions running on your Mac never see it. Claude Code reads `AGENTS.md` on its own, so no symlink is needed. Copy `container-AGENTS.md.example` to start.
+
+It is the place for anything true only in the container: which Mac-only tools are absent and what to use instead, and what a custom layer has added. The file is yours and is never part of a clauded release.
+
 ## Configuration
 
 User settings live in `~/.clauded/config` (auto-created on first run):
