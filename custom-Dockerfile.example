@@ -1,0 +1,23 @@
+# clauded custom layer — copy to ~/.clauded/custom/Dockerfile and edit.
+#
+# clauded builds its own image as claude-code:base, then builds this on top of it
+# as claude-code:latest. Anything installed here survives updates, because the
+# layer is rebuilt whenever clauded or Claude Code changes, and whenever this file
+# changes.
+#
+# Two rules, both checked at build time:
+#   1. Start FROM claude-code:base.
+#   2. End as the claude user, so install with sudo rather than USER root.
+#
+# The directory holding this file is the build context, so COPY picks up files
+# beside it. Add a .dockerignore there to keep large files out of the build.
+
+FROM claude-code:base
+
+# Extra packages
+RUN sudo apt-get update && sudo apt-get install -y --no-install-recommends httpie \
+    && sudo rm -rf /var/lib/apt/lists/*
+
+# Your own scripts, from this directory
+# COPY my-tool /usr/local/bin/my-tool
+# RUN sudo chmod +x /usr/local/bin/my-tool

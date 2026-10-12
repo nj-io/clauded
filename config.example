@@ -21,6 +21,11 @@ SSH_CONFIG=""
 # GITCONFIG="$SCRIPT_DIR/gitconfig-docker"
 GITCONFIG=""
 
+# Custom tools in the image: put a Dockerfile in ~/.clauded/custom/ and clauded
+# builds it on top of its own image. It starts FROM claude-code:base and ends as
+# the claude user. The directory is the build context, so COPY works.
+# See the README for an example.
+
 # Skip the startup update checks for clauded and Claude Code (same as --no-update flag)
 # SKIP_UPDATE="true"
 

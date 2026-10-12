@@ -142,11 +142,27 @@ clauded clipboard start|stop|restart|status|install|uninstall  # Clipboard bridg
 ### Build & Maintenance
 
 ```bash
-clauded build                              # Build/rebuild (auto-detects updates)
+clauded build                              # Build/rebuild, including any custom layer
 clauded update                             # Get the latest clauded release, then rebuild
 clauded firewall                           # Lock down outbound network access
 clauded setup                              # Full setup wizard
 ```
+
+### Custom tools in the image
+
+clauded builds its own image as `claude-code:base`, then builds `claude-code:latest` on top of it from `~/.clauded/custom/Dockerfile` when that file exists. Anything installed there survives updates, because the layer is rebuilt whenever clauded or Claude Code changes.
+
+```dockerfile
+# ~/.clauded/custom/Dockerfile
+FROM claude-code:base
+RUN sudo apt-get update && sudo apt-get install -y --no-install-recommends httpie \
+    && sudo rm -rf /var/lib/apt/lists/*
+COPY my-tool /usr/local/bin/my-tool
+```
+
+Two rules. The `FROM` line reads `claude-code:base`, and the layer ends as the `claude` user, so install with `sudo` rather than switching to `USER root`. clauded refuses a layer that breaks either rule and tells you which. Copy `custom-Dockerfile.example` to start.
+
+The directory is the build context, so `COPY` picks up files beside the Dockerfile, and a `.dockerignore` there keeps large files out of the build. Editing the Dockerfile is picked up on the next launch. If the custom build fails, clauded keeps the last working image, says so, and waits for the file to change before trying again.
 
 ## Configuration
 

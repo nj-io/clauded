@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-12
+
+42. **Custom tools in the image.** clauded can build extra tools into the image, so they survive updates.
+    - Put a Dockerfile in `~/.clauded/custom/`. clauded builds it on top of its own image.
+    - It starts `FROM claude-code:base` and ends as the `claude` user. clauded refuses a layer that breaks either rule and says which.
+    - The directory is the build context, so `COPY` works for local files.
+    - The layer rebuilds whenever clauded or Claude Code updates, and when the Dockerfile changes.
+    - If the custom build fails, clauded keeps the last working image and waits for the file to change before trying again.
+    - Without that file, nothing changes.
+
 ## 2026-10-10
 
 41. **Claude in Chrome is on in every session.** clauded starts Claude Code with Chrome enabled, so the Chrome tools load in the container without extra flags.

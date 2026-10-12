@@ -182,15 +182,55 @@ self_update() {
     GIT_TERMINAL_PROMPT=0 git -C "$dir" fetch --quiet origin main >/dev/null 2>&1 &
 }
 
-# The image carries the clauded commit it was built from (clauded.revision), so a
-# checkout that has moved on — by self-update or a manual pull — triggers a rebuild.
-# An image built before that label existed reports nothing and rebuilds once.
+# Optional user layer: a Dockerfile in ~/.clauded/custom/ is built on top of
+# clauded's own image, so tools a user adds survive updates. That directory is the
+# build context. Absent by default, in which case the image is clauded's unchanged.
+CUSTOM_DIR="$HOME/.clauded/custom"
+CUSTOM_DOCKERFILE="$CUSTOM_DIR/Dockerfile"
+CUSTOM_FAIL_MARKER="$HOME/.clauded/.custom-build-failed"
+BASE_IMAGE="claude-code:base"
+
+custom_layer_present() { [[ -f "$CUSTOM_DOCKERFILE" ]]; }
+
+# Hash of the custom Dockerfile, recorded on the image as clauded.custom. It
+# answers two questions: whether an edited layer needs rebuilding, and whether a
+# layer that failed last time has changed enough to be worth retrying.
+custom_layer_hash() {
+    if custom_layer_present; then
+        shasum -a 256 "$CUSTOM_DOCKERFILE" | awk '{print $1}'
+    else
+        echo none
+    fi
+}
+
+# Claude Code's version inside the image. A custom layer can shadow the claude
+# binary, so a value that is not a version number is reported as unknown rather
+# than compared — an unknown version would otherwise look like an available
+# update and rebuild the image on every launch.
+image_claude_version() {
+    local v
+    v="$(docker run --rm --entrypoint claude "$IMAGE_NAME" --version 2>/dev/null | head -1 | awk '{print $1}')" || true
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || v=""
+    printf '%s' "$v"
+}
+
+# The image carries the clauded commit it was built from (clauded.revision) and the
+# hash of any custom layer (clauded.custom). A checkout that has moved on — by
+# self-update or a manual pull — or an edited custom layer triggers a rebuild. An
+# image built before these labels existed reports nothing and rebuilds once.
 image_behind_checkout() {
-    local head built
+    local head built_rev built_custom
+    # A custom layer that failed to build is not retried on every launch; it waits
+    # for the file to change. 'clauded build' always retries and clears the marker.
+    if [[ -f "$CUSTOM_FAIL_MARKER" && "$(cat "$CUSTOM_FAIL_MARKER" 2>/dev/null)" == "$(custom_layer_hash)" ]]; then
+        return 1
+    fi
     head="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" || return 1
     [[ -n "$head" ]] || return 1
-    built="$(docker image inspect --format '{{index .Config.Labels "clauded.revision"}}' "$IMAGE_NAME" 2>/dev/null)" || return 1
-    [[ "$built" != "$head" ]]
+    built_rev="$(docker image inspect --format '{{index .Config.Labels "clauded.revision"}}' "$IMAGE_NAME" 2>/dev/null)" || return 1
+    [[ "$built_rev" == "$head" ]] || return 0
+    built_custom="$(docker image inspect --format '{{index .Config.Labels "clauded.custom"}}' "$IMAGE_NAME" 2>/dev/null)" || return 1
+    [[ "$built_custom" != "$(custom_layer_hash)" ]]
 }
 
 ensure_ready() {
@@ -215,7 +255,7 @@ ensure_ready() {
     elif [[ -n "$pin" ]]; then
         # Pinned version: rebuild if current doesn't match
         local current
-        current="$(docker run --rm --entrypoint claude "$IMAGE_NAME" --version 2>/dev/null | head -1 | awk '{print $1}')" || true
+        current="$(image_claude_version)"
         if [[ "$current" != "$pin" ]]; then
             log "Pinning Claude Code: $current → $pin"
             cmd_build "$pin"
@@ -229,7 +269,7 @@ ensure_ready() {
         # Check for Claude Code updates (skip with --no-update or SKIP_UPDATE=true in config)
         if [[ "${SKIP_UPDATE:-}" != "true" ]]; then
             local current latest reason=""
-            current="$(docker run --rm --entrypoint claude "$IMAGE_NAME" --version 2>/dev/null | head -1 | awk '{print $1}')" || true
+            current="$(image_claude_version)"
             latest="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || true
             if [[ -n "$latest" && -n "$current" && "$current" != "$latest" ]]; then
                 reason="Updating Claude Code: $current → $latest"
@@ -424,8 +464,11 @@ docker_run() {
         flags+=(-e "GH_TOKEN=${gh_token}")
     fi
 
-    # Shared secret so the clipboard/sound bridge only serves this Mac's containers
+    # Shared secret so the clipboard/sound bridge only serves this Mac's containers.
+    # The session name is set alongside it: anything in the container that talks to
+    # a host bridge needs both, so both are present on every launch.
     ensure_bridge_token
+    flags+=(-e "CLAUDED_SESSION_NAME=${name}")
     if [[ -s "$BRIDGE_TOKEN_FILE" ]]; then
         flags+=(-e "CLAUDED_BRIDGE_TOKEN=$(cat "$BRIDGE_TOKEN_FILE")")
     fi
@@ -436,7 +479,6 @@ docker_run() {
             -e "CLAUDED_VOICE=1"
             -e "CLAUDED_MIC_HOST=host.docker.internal"
             -e "CLAUDED_MIC_PORT=${MIC_PORT}"
-            -e "CLAUDED_SESSION_NAME=${name}"
         )
     fi
 
@@ -753,41 +795,97 @@ cmd_update() {
     exec "$SCRIPT_DIR/clauded" build
 }
 
+# Run one docker build, capturing its real exit code so callers can treat a failed
+# or interrupted build as non-fatal; set -e would otherwise abort the launch. Ctrl-C
+# is reported as 130. The resulting image id is left in BUILT_IID, read from
+# --iidfile rather than a shared temporary tag, so two sessions building at the same
+# time cannot tag each other's half-built image.
+build_image() {
+    local context="$1"; shift
+    local iidfile rc=0
+    iidfile="$(mktemp "${TMPDIR:-/tmp}/clauded-iid.XXXXXX")"
+    BUILT_IID=""
+    trap 'rc=130' INT
+    docker build --iidfile "$iidfile" "$@" "$context" || rc=$?
+    trap - INT
+    BUILT_IID="$(cat "$iidfile" 2>/dev/null || true)"
+    rm -f "$iidfile"
+    return "$rc"
+}
+
+# Build the user's layer on top of the base image. Two rules are enforced here
+# rather than left to fail later, because both fail in ways that are hard to read:
+# the layer must build FROM the base tag (FROM claude-code:latest would derive each
+# build from the previous derived image, stacking layers and inheriting a stale
+# label), and it must end as the claude user (an image whose user is root makes
+# every session refuse to start, since --dangerously-skip-permissions cannot run as
+# root). A rejected layer records its hash so the next launch does not retry it.
+build_custom_layer() {
+    local hash from_line rc=0 user
+    hash="$(custom_layer_hash)"
+    from_line="$(grep -m1 -iE '^[[:space:]]*FROM[[:space:]]' "$CUSTOM_DOCKERFILE" 2>/dev/null | awk '{print $2}')" || true
+    if [[ "$from_line" != "$BASE_IMAGE" ]]; then
+        err "Custom layer must start 'FROM $BASE_IMAGE' (found '${from_line:-nothing}'). Keeping the previous image."
+        echo "$hash" > "$CUSTOM_FAIL_MARKER"
+        return 1
+    fi
+    log "Building custom layer from $CUSTOM_DOCKERFILE..."
+    build_image "$CUSTOM_DIR" --label "clauded.custom=$hash" || rc=$?
+    if (( rc != 0 )) || [[ -z "$BUILT_IID" ]]; then
+        err "Custom layer build failed — keeping the previous image. Fix $CUSTOM_DOCKERFILE, then run 'clauded build'."
+        echo "$hash" > "$CUSTOM_FAIL_MARKER"
+        return 1
+    fi
+    user="$(docker image inspect --format '{{.Config.User}}' "$BUILT_IID" 2>/dev/null || true)"
+    if [[ -z "$user" || "$user" == "0" || "$user" == "root" ]]; then
+        err "Custom layer must end as the claude user, not root. Install with sudo rather than 'USER root'. Keeping the previous image."
+        echo "$hash" > "$CUSTOM_FAIL_MARKER"
+        docker rmi "$BUILT_IID" >/dev/null 2>&1 || true
+        return 1
+    fi
+    docker tag "$BUILT_IID" "$IMAGE_NAME"
+    rm -f "$CUSTOM_FAIL_MARKER"
+}
+
 cmd_build() {
     local ver="${1:-}"
     if [[ -z "$ver" ]]; then
         ver="$(curl -sf --connect-timeout 3 "$GCS_BUCKET/latest" 2>/dev/null)" || ver="latest"
     fi
-    local old_image
-    old_image="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
+    local old_latest old_base rc=0
+    old_latest="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
+    old_base="$(docker image inspect --format '{{.Id}}' "$BASE_IMAGE" 2>/dev/null || true)"
     log "Building image (${ver})..."
-    # Capture the build's real exit code (survives set -e) so callers can treat a
-    # failed or interrupted update as non-fatal and fall back to the current
-    # image. Ctrl-C during the build is reported as an interrupt (rc=130).
-    local rc=0
-    trap 'rc=130' INT
-    docker build \
+    build_image "$SCRIPT_DIR" \
         --build-arg CLAUDE_VERSION="$ver" \
         --build-arg CLAUDED_REVISION="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)" \
         --build-arg USER_ID="$(id -u)" \
         --build-arg GROUP_ID="$(id -g)" \
         --build-arg HOME_DIR="$HOME" \
-        -t "$IMAGE_NAME" "$SCRIPT_DIR" || rc=$?
-    trap - INT
+        -t "$BASE_IMAGE" || rc=$?
     if (( rc != 0 )); then
         err "Image build did not finish (exit $rc)."
         (( rc == 130 )) && err "Interrupted — re-run 'clauded build' to finish. If a later launch hangs with no output, run 'docker builder prune -f'."
         return "$rc"
     fi
-    # Remove only clauded's own previous image if this build replaced it.
+    if custom_layer_present; then
+        build_custom_layer || return 1
+    else
+        docker tag "$BASE_IMAGE" "$IMAGE_NAME"
+        rm -f "$CUSTOM_FAIL_MARKER"
+    fi
+    # Remove clauded's own previous images if this build replaced them. The old
+    # :latest goes first: with a custom layer the old :base is its parent, and
+    # `docker rmi` refuses an image that still has a dependent child.
     # (Deliberately not `docker system/builder prune` — that would wipe other
     # projects' images and the shared build cache.)
-    if [[ -n "$old_image" ]]; then
-        local new_image
-        new_image="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
-        [[ -n "$new_image" && "$old_image" != "$new_image" ]] && \
-            docker rmi "$old_image" >/dev/null 2>&1 || true
-    fi
+    local new_latest new_base
+    new_latest="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME" 2>/dev/null || true)"
+    new_base="$(docker image inspect --format '{{.Id}}' "$BASE_IMAGE" 2>/dev/null || true)"
+    [[ -n "$old_latest" && "$old_latest" != "$new_latest" && "$old_latest" != "$new_base" ]] && \
+        docker rmi "$old_latest" >/dev/null 2>&1 || true
+    [[ -n "$old_base" && "$old_base" != "$new_base" && "$old_base" != "$new_latest" ]] && \
+        docker rmi "$old_base" >/dev/null 2>&1 || true
     ok "Image ready ($ver)."
 }
 
@@ -994,7 +1092,7 @@ clauded: Claude Code in Docker
   clauded stop-all                             Stop everything
   clauded run "prompt"                         Quick non-interactive query
   clauded shell                                Bash into most recent session
-  clauded build                                Build/rebuild Docker image
+  clauded build                                Build/rebuild image, including any custom layer
   clauded update                               Update clauded, then rebuild the image
   clauded firewall                             Lock down network access
   clauded sounds start|install                 Sound server for notifications

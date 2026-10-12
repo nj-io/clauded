@@ -11,6 +11,8 @@ resume.log
 /tmp/
 /.host-net-hint-shown
 /.voice-sox-hint-shown
+/.custom-build-failed
+/custom/
 
 # User-specific configs (created from .example files)
 gitconfig-docker

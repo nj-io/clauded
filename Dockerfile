@@ -127,5 +127,9 @@ WORKDIR ${HOME_DIR}/dev
 # checkout and rebuilds when the checkout has moved on.
 ARG CLAUDED_REVISION=unknown
 LABEL clauded.revision=${CLAUDED_REVISION}
+# Hash of the user's custom layer, if any. A build of this Dockerfile alone carries
+# "none"; a layer built on top of it overrides this with its own hash.
+ARG CLAUDED_CUSTOM=none
+LABEL clauded.custom=${CLAUDED_CUSTOM}
 
 ENTRYPOINT ["entrypoint.sh"]
